@@ -96,8 +96,9 @@ export const WeekView: React.FC<WeekViewProps> = ({
   const hours = Array.from({ length: TOTAL_HOURS }, (_, i) => START_HOUR + i);
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-pink-50/20 select-none overflow-hidden">
-      {/* 1. Week Days Sticky Header */}
+    <div className="flex-1 flex flex-col h-full bg-pink-50/20 select-none overflow-x-auto overflow-y-hidden">
+      <div className="flex-1 flex flex-col min-w-[620px] md:min-w-0 h-full relative">
+        {/* 1. Week Days Sticky Header */}
       <div className="grid grid-cols-[64px_repeat(7,1fr)] border-b border-pink-200/90 bg-pink-100/50 shrink-0 pr-2">
         <div className="py-2.5 px-3 border-r border-pink-200/80 text-[11px] font-bold text-pink-400 text-right">
           GMT-7
@@ -333,7 +334,20 @@ export const WeekView: React.FC<WeekViewProps> = ({
             </div>
           );
         })}
+        {/* Empty Schedule Notice */}
+        {filteredEvents.length === 0 && (
+          <div className="absolute top-16 left-20 right-4 z-10 pointer-events-none flex justify-center">
+            <div className="pointer-events-auto bg-white/95 border border-pink-300 rounded-2xl p-4 shadow-sm text-center max-w-sm">
+              <span className="text-xl">🌸</span>
+              <h5 className="text-xs font-black text-pink-950 mt-1">Fresh Week Schedule</h5>
+              <p className="text-[11px] text-pink-700 font-medium mt-0.5">
+                Click any slot across Monday to Sunday to timebox your week! 💖
+              </p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
-  );
+  </div>
+);
 };

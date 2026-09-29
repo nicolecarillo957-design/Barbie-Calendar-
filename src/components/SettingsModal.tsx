@@ -152,27 +152,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
 
-          {/* Section 3: Reset Demo Schedule */}
+          {/* Section 3: Clear Schedule & Start Fresh */}
           <div className="p-4 bg-rose-50/60 border border-rose-200 rounded-2xl">
             <h4 className="text-xs font-extrabold uppercase tracking-wider text-rose-800 mb-1 flex items-center gap-1">
-              <span>Reset Barbie Schedule</span>
+              <span>Clear Schedule & Start Fresh</span>
               <span>🧁</span>
             </h4>
             <p className="text-xs text-rose-700 mb-3 font-medium">
-              Restore the original curated Barbie schedule (September 28 – October 4, 2026) with creative fashion, dreamhouse planning, and boss babe blocks.
+              Remove all calendar events so you can plan your own custom schedule from scratch.
             </p>
             <button
               onClick={() => {
-                if (confirm('Reset to original Barbie curated schedule?')) {
-                  onResetData();
-                  cuteSound.playCelebrationFanfare();
-                  onClose();
-                }
+                onResetData();
+                cuteSound.playCelebrationFanfare();
+                onClose();
               }}
               className="py-2 px-3.5 text-rose-700 hover:text-white hover:bg-rose-500 bg-white text-xs font-bold rounded-xl border border-rose-300 transition-colors flex items-center gap-1.5 shadow-2xs"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              Reset to Curated Barbie Schedule
+              Clear Schedule (Start Fresh) 🌸
             </button>
           </div>
         </div>

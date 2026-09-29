@@ -27,8 +27,7 @@ import {
   ShieldCheck,
   CalendarCheck,
   Bell,
-  Send,
-  MessageHeart
+  Send
 } from 'lucide-react';
 import { formatDateKey } from '../utils/dateUtils';
 

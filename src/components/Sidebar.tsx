@@ -29,7 +29,8 @@ import {
   Layers,
   Sparkles,
   Bell,
-  Heart
+  Heart,
+  X
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -49,6 +50,8 @@ interface SidebarProps {
   cycleSettings?: CycleSettings;
   onOpenCycle?: () => void;
   onOpenCalmSanctuary?: () => void;
+  isMobileOpen?: boolean;
+  onCloseMobile?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -67,6 +70,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   cycleSettings,
   onOpenCycle,
   onOpenCalmSanctuary,
+  isMobileOpen = false,
+  onCloseMobile,
 }) => {
   // Mini Calendar State: viewed month
   const [viewedMonth, setViewedMonth] = useState<Date>(
@@ -132,8 +137,38 @@ export const Sidebar: React.FC<SidebarProps> = ({
   if (isCollapsed) return null;
 
   return (
-    <aside className="w-72 bg-pink-50/60 border-r border-pink-200/90 flex flex-col shrink-0 select-none overflow-y-auto">
-      {/* 1. Mini Month Calendar */}
+    <>
+      {/* Mobile Drawer Overlay Backdrop */}
+      {isMobileOpen && (
+        <div 
+          onClick={onCloseMobile}
+          className="fixed inset-0 z-40 bg-pink-950/40 backdrop-blur-2xs lg:hidden"
+        />
+      )}
+
+      <aside
+        className={`
+          bg-white lg:bg-pink-50/60 border-r border-pink-200/90 flex flex-col shrink-0 select-none overflow-y-auto
+          fixed inset-y-0 left-0 z-50 w-80 max-w-[85vw] shadow-2xl transition-transform duration-300 lg:static lg:w-72 lg:shadow-none lg:translate-x-0
+          ${isMobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+          ${isCollapsed ? 'lg:hidden' : 'lg:flex'}
+        `}
+      >
+        {/* Mobile Header Bar */}
+        <div className="lg:hidden flex items-center justify-between p-3.5 bg-gradient-to-r from-pink-200 via-rose-100 to-pink-200 border-b border-pink-300">
+          <span className="text-xs font-black text-pink-950 flex items-center gap-1.5">
+            <span>Barbie Planner & Tasks</span>
+            <span>💖</span>
+          </span>
+          <button
+            onClick={onCloseMobile}
+            className="p-1.5 text-pink-700 hover:text-pink-900 hover:bg-pink-200/70 rounded-lg transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* 1. Mini Month Calendar */}
       <div className="p-4 border-b border-pink-200/70 bg-white/40">
         <div className="flex items-center justify-between mb-3">
           <span className="text-xs font-extrabold text-pink-950 tracking-wide uppercase flex items-center gap-1">
@@ -180,7 +215,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             return (
               <button
                 key={i}
-                onClick={() => onSelectDate(d)}
+                onClick={() => {
+                  onSelectDate(d);
+                  if (onCloseMobile) onCloseMobile();
+                }}
                 className={`relative h-7 w-7 mx-auto flex items-center justify-center text-xs rounded-full transition-colors ${
                   isSelected
                     ? 'bg-pink-500 text-white font-bold shadow-xs'
@@ -505,5 +543,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
     </aside>
-  );
+  </>
+);
 };

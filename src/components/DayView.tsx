@@ -132,26 +132,26 @@ export const DayView: React.FC<DayViewProps> = ({
   return (
     <div className="flex-1 flex h-full overflow-hidden bg-pink-50/20 select-none">
       {/* Main Hourly Timeline */}
-      <div className="flex-1 flex flex-col h-full border-r border-pink-200/90">
+      <div className="flex-1 flex flex-col h-full border-r border-pink-200/90 min-w-0">
         {/* Daily Metric Kicker Bar */}
-        <div className="h-12 px-6 border-b border-pink-200/90 bg-pink-100/50 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-4 text-xs font-medium">
+        <div className="min-h-12 py-2 px-3 sm:px-6 border-b border-pink-200/90 bg-pink-100/50 flex items-center justify-between shrink-0 overflow-x-auto whitespace-nowrap gap-3 scrollbar-none">
+          <div className="flex items-center gap-2 sm:gap-4 text-xs font-medium">
             <span className="font-extrabold text-pink-950 flex items-center gap-1.5">
-              <span>{currentDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</span>
+              <span>{currentDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
               <span>💖</span>
             </span>
             <span aria-hidden="true" className="text-pink-300">·</span>
             <span className="text-pink-600 font-mono font-bold">
               {dailySummary.totalHours.toFixed(1)}h planned
             </span>
-            <span aria-hidden="true" className="text-pink-300">·</span>
-            <span className="text-pink-700 font-mono font-bold">
-              {dailySummary.deepWorkHours.toFixed(1)}h Deep Focus
-            </span>
-            <span aria-hidden="true" className="text-pink-300">·</span>
-            <span className="text-rose-600 font-mono font-bold">
-              {dailySummary.meetingsHours.toFixed(1)}h Meet & Chat
-            </span>
+            {dailySummary.deepWorkHours > 0 && (
+              <>
+                <span aria-hidden="true" className="text-pink-300">·</span>
+                <span className="text-pink-700 font-mono font-bold">
+                  {dailySummary.deepWorkHours.toFixed(1)}h Focus
+                </span>
+              </>
+            )}
             {cycleSettings && (
               <>
                 <span aria-hidden="true" className="text-pink-300">·</span>
@@ -164,8 +164,8 @@ export const DayView: React.FC<DayViewProps> = ({
                       title="Click to view cycle guidance and tips"
                     >
                       <span>{cInfo.icon}</span>
-                      <span>Day {cInfo.cycleDay} · {cInfo.phaseName.split(' ')[0]}</span>
-                      <span className="text-[10px] text-pink-600 underline font-semibold">Guidance ✨</span>
+                      <span>Day {cInfo.cycleDay}</span>
+                      <span className="text-[10px] text-pink-600 underline font-semibold">Glow ✨</span>
                     </button>
                   );
                 })()}
@@ -173,8 +173,8 @@ export const DayView: React.FC<DayViewProps> = ({
             )}
           </div>
 
-          <div className="text-xs font-mono font-bold text-pink-700">
-            {dailySummary.completedCount}/{dailySummary.totalCount} completed ✨
+          <div className="text-xs font-mono font-bold text-pink-700 shrink-0">
+            {dailySummary.completedCount}/{dailySummary.totalCount} done ✨
           </div>
         </div>
 
@@ -223,6 +223,27 @@ export const DayView: React.FC<DayViewProps> = ({
               >
                 <span className="text-sm -ml-2 select-none text-pink-500 animate-pulse">💖</span>
                 <div className="flex-1 h-[2px] bg-pink-500 shadow-xs shadow-pink-300" />
+              </div>
+            )}
+
+            {/* Empty State Invitation when no events */}
+            {dayEvents.length === 0 && (
+              <div className="absolute inset-x-4 top-24 z-10 flex flex-col items-center justify-center p-6 bg-white/95 backdrop-blur-xs rounded-2xl border-2 border-dashed border-pink-300 shadow-md text-center max-w-sm mx-auto animate-in fade-in duration-300">
+                <span className="text-3xl mb-1.5 animate-bounce">🎀</span>
+                <h4 className="text-sm font-extrabold text-pink-950">
+                  Your schedule is fresh & clear!
+                </h4>
+                <p className="text-xs text-pink-700 font-medium mt-1 leading-relaxed">
+                  Tap any time slot on the calendar grid to schedule your first custom timebox ✨
+                </p>
+                <button
+                  type="button"
+                  onClick={() => onSlotClick(dateStr, '09:00')}
+                  className="mt-3.5 px-4 py-2 bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white text-xs font-bold rounded-xl shadow-xs transition-transform active:scale-95 flex items-center gap-1.5"
+                >
+                  <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                  <span>Timebox 9:00 AM 💖</span>
+                </button>
               </div>
             )}
 
@@ -383,8 +404,8 @@ export const DayView: React.FC<DayViewProps> = ({
         </div>
       </div>
 
-      {/* Right Dock: Day Timebox Planning & Tasks */}
-      <div className="w-80 border-l border-pink-200/90 bg-pink-50/60 flex flex-col shrink-0 p-4 overflow-y-auto">
+      {/* Right Dock: Day Timebox Planning & Tasks (Shown on desktop) */}
+      <div className="hidden lg:flex w-80 border-l border-pink-200/90 bg-pink-50/60 flex-col shrink-0 p-4 overflow-y-auto">
         <h3 className="text-xs font-extrabold text-pink-950 uppercase tracking-wider mb-3 flex items-center gap-1">
           <span>Schedule for Today</span>
           <span>💖</span>

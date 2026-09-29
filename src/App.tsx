@@ -37,10 +37,11 @@ import { CuteNotificationCenter } from './components/CuteNotificationCenter';
 import { CuteToastContainer } from './components/CuteToastContainer';
 import { CycleGlowModal } from './components/CycleGlowModal';
 import { CalmSanctuaryModal } from './components/CalmSanctuaryModal';
+import { MobileBottomNav } from './components/MobileBottomNav';
 
-const EVENTS_STORAGE_KEY = 'chronos_calendar_events_v2';
-const TASKS_STORAGE_KEY = 'chronos_calendar_tasks_v2';
-const NOTIFS_STORAGE_KEY = 'chronos_calendar_notifs_v2';
+const EVENTS_STORAGE_KEY = 'barbie_calendar_events_user_v1';
+const TASKS_STORAGE_KEY = 'barbie_calendar_tasks_user_v1';
+const NOTIFS_STORAGE_KEY = 'barbie_calendar_notifs_user_v1';
 const CYCLE_STORAGE_KEY = 'barbie_calendar_cycle_v1';
 
 const INITIAL_NOTIFICATIONS: AppNotification[] = [
@@ -75,6 +76,12 @@ export default function App() {
   // 3. Events State (with LocalStorage persistence)
   const [events, setEvents] = useState<CalendarEvent[]>(() => {
     try {
+      // Clear legacy sample events so the user starts with a clean slate
+      localStorage.removeItem('chronos_calendar_events_v2');
+      localStorage.removeItem('chronos_calendar_events');
+      localStorage.removeItem('chronos_calendar_tasks_v2');
+      localStorage.removeItem('chronos_calendar_tasks');
+
       const stored = localStorage.getItem(EVENTS_STORAGE_KEY);
       if (stored) {
         return JSON.parse(stored);
@@ -82,7 +89,7 @@ export default function App() {
     } catch (e) {
       console.error('Failed reading events from storage', e);
     }
-    return INITIAL_EVENTS;
+    return INITIAL_EVENTS; // Clean empty schedule
   });
 
   useEffect(() => {
@@ -172,6 +179,7 @@ export default function App() {
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isCycleModalOpen, setIsCycleModalOpen] = useState(false);
   const [isCalmModalOpen, setIsCalmModalOpen] = useState(false);
 
@@ -662,6 +670,8 @@ export default function App() {
     isFocusModalOpen,
     isSettingsOpen,
     isNotificationCenterOpen,
+    isCycleModalOpen,
+    isCalmModalOpen,
   ]);
 
   // Filter upcoming events with reminders for today
@@ -697,6 +707,8 @@ export default function App() {
         onOpenNotifications={() => setIsNotificationCenterOpen(true)}
         onOpenCycle={() => setIsCycleModalOpen(true)}
         cycleInfo={currentCycleInfo}
+        onOpenCalmSanctuary={() => setIsCalmModalOpen(true)}
+        onToggleSidebar={() => setIsMobileSidebarOpen((prev) => !prev)}
         unreadNotificationCount={unreadCount}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
@@ -726,11 +738,14 @@ export default function App() {
             onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
             cycleSettings={cycleSettings}
             onOpenCycle={() => setIsCycleModalOpen(true)}
+            onOpenCalmSanctuary={() => setIsCalmModalOpen(true)}
+            isMobileOpen={isMobileSidebarOpen}
+            onCloseMobile={() => setIsMobileSidebarOpen(false)}
           />
         )}
 
-        {/* Viewport Content */}
-        <main className="flex-1 flex flex-col h-full overflow-hidden bg-pink-50/15">
+        {/* Viewport Content (with pb-16 on mobile for the mobile bottom nav bar) */}
+        <main className="flex-1 flex flex-col h-full overflow-hidden bg-pink-50/15 pb-16 md:pb-0">
           {currentView === 'week' && (
             <WeekView
               currentDate={currentDate}
@@ -809,6 +824,7 @@ export default function App() {
         onClearAll={handleClearAllNotifications}
         onSnooze={handleSnooze}
         onTriggerTestReminder={handleTriggerTestReminder}
+        onTriggerCycleMorningNotification={handleTriggerCycleMorningNotification}
         onSelectEvent={(ev) => {
           setIsNotificationCenterOpen(false);
           handleSelectEvent(ev);
@@ -855,6 +871,7 @@ export default function App() {
         currentDate={currentDate}
         settings={cycleSettings}
         onUpdateSettings={setCycleSettings}
+        onTriggerMorningMessage={handleTriggerCycleMorningNotification}
         onScheduleSelfCare={(eventData) => {
           const newEv: CalendarEvent = {
             ...eventData,
@@ -862,6 +879,50 @@ export default function App() {
           };
           setEvents((prev) => [...prev, newEv]);
         }}
+      />
+
+      <CalmSanctuaryModal
+        isOpen={isCalmModalOpen}
+        onClose={() => setIsCalmModalOpen(false)}
+        currentDate={currentDate}
+        onScheduleDeStressBlock={(eventData) => {
+          const newEv: CalendarEvent = {
+            ...eventData,
+            id: `evt-destress-${Date.now()}`,
+          };
+          setEvents((prev) => [...prev, newEv]);
+          triggerNotification({
+            title: `${newEv.title} Scheduled! 🌿`,
+            message: 'Your calm sanctuary reset is locked in. Be kind to yourself today 💖',
+            type: 'celebration',
+          });
+        }}
+        onAddTaskToBacklog={(title, estimatedMinutes) => {
+          const newTask: UnscheduledTask = {
+            id: `task-${Date.now()}`,
+            title,
+            category: 'health',
+            estimatedMinutes,
+            priority: 'medium',
+            completed: false,
+          };
+          setTasks((prev) => [newTask, ...prev]);
+        }}
+      />
+
+      {/* 6. Mobile Bottom Navigation Bar (Visible on mobile/tablet) */}
+      <MobileBottomNav
+        currentView={currentView}
+        onViewChange={(v) => {
+          setCurrentView(v);
+          setIsMobileSidebarOpen(false);
+        }}
+        onOpenCycle={() => setIsCycleModalOpen(true)}
+        onOpenCalmSanctuary={() => setIsCalmModalOpen(true)}
+        onOpenSidebar={() => setIsMobileSidebarOpen(true)}
+        onNewEvent={() => handleSlotClick(formatDateKey(currentDate), '09:00')}
+        cycleDay={currentCycleInfo.cycleDay}
+        isPeriod={currentCycleInfo.isPeriod}
       />
     </div>
   );
