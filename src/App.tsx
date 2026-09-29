@@ -201,6 +201,7 @@ export default function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isCycleModalOpen, setIsCycleModalOpen] = useState(false);
+const [showCycleTracking, setShowCycleTracking] = useState(true);
   const [isCalmModalOpen, setIsCalmModalOpen] = useState(false);
   const [isDressUpModalOpen, setIsDressUpModalOpen] = useState(false);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
