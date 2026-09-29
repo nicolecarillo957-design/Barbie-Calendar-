@@ -1,0 +1,6 @@
+{
+  "name": "Barbie Calendar",
+  "description": "An adorable, pink, and cutesy calendar for time management, timeboxing, and sweet reminders.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
