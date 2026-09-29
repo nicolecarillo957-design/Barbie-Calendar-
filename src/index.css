@@ -1,12 +1,473 @@
 @import "tailwindcss";
 
 @layer base {
+  /* 1. PINK THEME (DEFAULT BARBIE - ALL PINK!) */
+  :root, [data-theme="pink"] {
+    --color-pink-50: #fdf2f8;
+    --color-pink-100: #fce7f3;
+    --color-pink-200: #fbcfe8;
+    --color-pink-300: #f9a8d4;
+    --color-pink-400: #f472b6;
+    --color-pink-500: #ec4899;
+    --color-pink-600: #db2777;
+    --color-pink-700: #be185d;
+    --color-pink-800: #9d174d;
+    --color-pink-900: #831843;
+    --color-pink-950: #500724;
+
+    --color-rose-50: #fff1f2;
+    --color-rose-100: #ffe4e6;
+    --color-rose-200: #fecdd3;
+    --color-rose-300: #fda4af;
+    --color-rose-400: #fb7185;
+    --color-rose-500: #f43f5e;
+    --color-rose-600: #e11d48;
+    --color-rose-700: #be123c;
+    --color-rose-800: #9f1239;
+    --color-rose-900: #881337;
+    --color-rose-950: #4c0519;
+
+    --color-fuchsia-50: #fdf4ff;
+    --color-fuchsia-100: #fae8ff;
+    --color-fuchsia-200: #f5d0fe;
+    --color-fuchsia-300: #f0abfc;
+    --color-fuchsia-400: #e879f9;
+    --color-fuchsia-500: #d946ef;
+    --color-fuchsia-600: #c026d3;
+    --color-fuchsia-700: #a21caf;
+    --color-fuchsia-800: #86198f;
+    --color-fuchsia-900: #701a75;
+    --color-fuchsia-950: #4a044e;
+
+    --theme-bg: #fff1f4;
+    --theme-surface: #ffffff;
+    --theme-border: #fbcfe8;
+    --theme-text: #500724;
+    --theme-scroll-thumb: rgba(236, 72, 153, 0.5);
+    --theme-selection: #fbcfe8;
+  }
+
+  /* 2. BLUE THEME (MALIBU OCEAN BLUE - ALL BLUE!) */
+  [data-theme="blue"] {
+    --color-pink-50: #eff6ff;
+    --color-pink-100: #dbeafe;
+    --color-pink-200: #bfdbfe;
+    --color-pink-300: #93c5fd;
+    --color-pink-400: #60a5fa;
+    --color-pink-500: #3b82f6;
+    --color-pink-600: #2563eb;
+    --color-pink-700: #1d4ed8;
+    --color-pink-800: #1e40af;
+    --color-pink-900: #1e3a8a;
+    --color-pink-950: #172554;
+
+    --color-rose-50: #f0f9ff;
+    --color-rose-100: #e0f2fe;
+    --color-rose-200: #bae6fd;
+    --color-rose-300: #7dd3fc;
+    --color-rose-400: #38bdf8;
+    --color-rose-500: #0ea5e9;
+    --color-rose-600: #0284c7;
+    --color-rose-700: #0369a1;
+    --color-rose-800: #075985;
+    --color-rose-900: #0c4a6e;
+    --color-rose-950: #082f49;
+
+    --color-fuchsia-50: #e0f2fe;
+    --color-fuchsia-100: #bae6fd;
+    --color-fuchsia-200: #7dd3fc;
+    --color-fuchsia-300: #38bdf8;
+    --color-fuchsia-400: #0ea5e9;
+    --color-fuchsia-500: #0284c7;
+    --color-fuchsia-600: #0369a1;
+    --color-fuchsia-700: #075985;
+    --color-fuchsia-800: #0c4a6e;
+    --color-fuchsia-900: #082f49;
+    --color-fuchsia-950: #041926;
+
+    --theme-bg: #eff6ff;
+    --theme-surface: #ffffff;
+    --theme-border: #bfdbfe;
+    --theme-text: #172554;
+    --theme-scroll-thumb: rgba(59, 130, 246, 0.5);
+    --theme-selection: #bfdbfe;
+  }
+
+  /* 3. RED THEME (CHERRY CRIMSON RED - ALL RED!) */
+  [data-theme="red"] {
+    --color-pink-50: #fef2f2;
+    --color-pink-100: #fee2e2;
+    --color-pink-200: #fecaca;
+    --color-pink-300: #fca5a5;
+    --color-pink-400: #f87171;
+    --color-pink-500: #ef4444;
+    --color-pink-600: #dc2626;
+    --color-pink-700: #b91c1c;
+    --color-pink-800: #991b1b;
+    --color-pink-900: #7f1d1d;
+    --color-pink-950: #450a0a;
+
+    --color-rose-50: #fff1f2;
+    --color-rose-100: #ffe4e6;
+    --color-rose-200: #fecdd3;
+    --color-rose-300: #fda4af;
+    --color-rose-400: #fb7185;
+    --color-rose-500: #f43f5e;
+    --color-rose-600: #e11d48;
+    --color-rose-700: #be123c;
+    --color-rose-800: #9f1239;
+    --color-rose-900: #881337;
+    --color-rose-950: #4c0519;
+
+    --color-fuchsia-50: #fef2f2;
+    --color-fuchsia-100: #fee2e2;
+    --color-fuchsia-200: #fecaca;
+    --color-fuchsia-300: #fca5a5;
+    --color-fuchsia-400: #f87171;
+    --color-fuchsia-500: #dc2626;
+    --color-fuchsia-600: #b91c1c;
+    --color-fuchsia-700: #991b1b;
+    --color-fuchsia-800: #7f1d1d;
+    --color-fuchsia-900: #450a0a;
+    --color-fuchsia-950: #300505;
+
+    --theme-bg: #fef2f2;
+    --theme-surface: #ffffff;
+    --theme-border: #fecaca;
+    --theme-text: #450a0a;
+    --theme-scroll-thumb: rgba(239, 68, 68, 0.5);
+    --theme-selection: #fecaca;
+  }
+
+  /* 4. ORANGE THEME (SUNSET TANGERINE - ALL ORANGE!) */
+  [data-theme="orange"] {
+    --color-pink-50: #fff7ed;
+    --color-pink-100: #ffedd5;
+    --color-pink-200: #fed7aa;
+    --color-pink-300: #fdba74;
+    --color-pink-400: #fb923c;
+    --color-pink-500: #f97316;
+    --color-pink-600: #ea580c;
+    --color-pink-700: #c2410c;
+    --color-pink-800: #9a3412;
+    --color-pink-900: #7c2d12;
+    --color-pink-950: #431407;
+
+    --color-rose-50: #fffbeb;
+    --color-rose-100: #fef3c7;
+    --color-rose-200: #fde68a;
+    --color-rose-300: #fcd34d;
+    --color-rose-400: #fbbf24;
+    --color-rose-500: #f59e0b;
+    --color-rose-600: #d97706;
+    --color-rose-700: #b45309;
+    --color-rose-800: #92400e;
+    --color-rose-900: #78350f;
+    --color-rose-950: #451a03;
+
+    --color-fuchsia-50: #fff7ed;
+    --color-fuchsia-100: #ffedd5;
+    --color-fuchsia-200: #fed7aa;
+    --color-fuchsia-300: #fdba74;
+    --color-fuchsia-400: #fb923c;
+    --color-fuchsia-500: #ea580c;
+    --color-fuchsia-600: #c2410c;
+    --color-fuchsia-700: #9a3412;
+    --color-fuchsia-800: #7c2d12;
+    --color-fuchsia-900: #431407;
+    --color-fuchsia-950: #2d0b03;
+
+    --theme-bg: #fff7ed;
+    --theme-surface: #ffffff;
+    --theme-border: #fed7aa;
+    --theme-text: #431407;
+    --theme-scroll-thumb: rgba(249, 115, 22, 0.5);
+    --theme-selection: #fed7aa;
+  }
+
+  /* 5. BLACK THEME (MIDNIGHT NOIR - ALL SLEEK DARK / BLACK!) */
+  [data-theme="black"] {
+    --color-pink-50: #0f172a;
+    --color-pink-100: #1e293b;
+    --color-pink-200: #334155;
+    --color-pink-300: #475569;
+    --color-pink-400: #64748b;
+    --color-pink-500: #334155;
+    --color-pink-600: #475569;
+    --color-pink-700: #94a3b8;
+    --color-pink-800: #cbd5e1;
+    --color-pink-900: #f1f5f9;
+    --color-pink-950: #ffffff;
+
+    --color-rose-50: #020617;
+    --color-rose-100: #0f172a;
+    --color-rose-200: #1e293b;
+    --color-rose-300: #334155;
+    --color-rose-400: #475569;
+    --color-rose-500: #1e293b;
+    --color-rose-600: #334155;
+    --color-rose-700: #94a3b8;
+    --color-rose-800: #cbd5e1;
+    --color-rose-900: #f1f5f9;
+    --color-rose-950: #ffffff;
+
+    --color-fuchsia-50: #0f172a;
+    --color-fuchsia-100: #1e293b;
+    --color-fuchsia-200: #334155;
+    --color-fuchsia-300: #475569;
+    --color-fuchsia-400: #64748b;
+    --color-fuchsia-500: #334155;
+    --color-fuchsia-600: #475569;
+    --color-fuchsia-700: #94a3b8;
+    --color-fuchsia-800: #cbd5e1;
+    --color-fuchsia-900: #f1f5f9;
+    --color-fuchsia-950: #ffffff;
+
+    --theme-bg: #0b0f19;
+    --theme-surface: #1e293b;
+    --theme-border: #334155;
+    --theme-text: #f8fafc;
+    --theme-scroll-thumb: rgba(148, 163, 184, 0.35);
+    --theme-selection: #334155;
+  }
+
+  /* 6. YELLOW THEME (SUNSHINE BUTTERCUP - ALL YELLOW!) */
+  [data-theme="yellow"] {
+    --color-pink-50: #fefce8;
+    --color-pink-100: #fef9c3;
+    --color-pink-200: #fef08a;
+    --color-pink-300: #fde047;
+    --color-pink-400: #facc15;
+    --color-pink-500: #eab308;
+    --color-pink-600: #ca8a04;
+    --color-pink-700: #a16207;
+    --color-pink-800: #854d0e;
+    --color-pink-900: #713f12;
+    --color-pink-950: #422006;
+
+    --color-rose-50: #fffbeb;
+    --color-rose-100: #fef3c7;
+    --color-rose-200: #fde68a;
+    --color-rose-300: #fcd34d;
+    --color-rose-400: #fbbf24;
+    --color-rose-500: #f59e0b;
+    --color-rose-600: #d97706;
+    --color-rose-700: #b45309;
+    --color-rose-800: #92400e;
+    --color-rose-900: #78350f;
+    --color-rose-950: #451a03;
+
+    --color-fuchsia-50: #fffbeb;
+    --color-fuchsia-100: #fef3c7;
+    --color-fuchsia-200: #fde68a;
+    --color-fuchsia-300: #fcd34d;
+    --color-fuchsia-400: #fbbf24;
+    --color-fuchsia-500: #d97706;
+    --color-fuchsia-600: #b45309;
+    --color-fuchsia-700: #92400e;
+    --color-fuchsia-800: #78350f;
+    --color-fuchsia-900: #451a03;
+    --color-fuchsia-950: #290e01;
+
+    --theme-bg: #fefce8;
+    --theme-surface: #ffffff;
+    --theme-border: #fef08a;
+    --theme-text: #422006;
+    --theme-scroll-thumb: rgba(234, 179, 8, 0.5);
+    --theme-selection: #fef08a;
+  }
+
+  /* 7. WHITE THEME (MINIMAL PEARL CLOUD - ALL CRISP WHITE & SLATE!) */
+  [data-theme="white"] {
+    --color-pink-50: #f8fafc;
+    --color-pink-100: #f1f5f9;
+    --color-pink-200: #e2e8f0;
+    --color-pink-300: #cbd5e1;
+    --color-pink-400: #94a3b8;
+    --color-pink-500: #475569;
+    --color-pink-600: #334155;
+    --color-pink-700: #1e293b;
+    --color-pink-800: #0f172a;
+    --color-pink-900: #020617;
+    --color-pink-950: #000000;
+
+    --color-rose-50: #ffffff;
+    --color-rose-100: #f8fafc;
+    --color-rose-200: #e2e8f0;
+    --color-rose-300: #cbd5e1;
+    --color-rose-400: #94a3b8;
+    --color-rose-500: #64748b;
+    --color-rose-600: #475569;
+    --color-rose-700: #334155;
+    --color-rose-800: #1e293b;
+    --color-rose-900: #0f172a;
+    --color-rose-950: #020617;
+
+    --color-fuchsia-50: #f8fafc;
+    --color-fuchsia-100: #f1f5f9;
+    --color-fuchsia-200: #e2e8f0;
+    --color-fuchsia-300: #cbd5e1;
+    --color-fuchsia-400: #94a3b8;
+    --color-fuchsia-500: #64748b;
+    --color-fuchsia-600: #475569;
+    --color-fuchsia-700: #334155;
+    --color-fuchsia-800: #1e293b;
+    --color-fuchsia-900: #0f172a;
+    --color-fuchsia-950: #020617;
+
+    --theme-bg: #f8fafc;
+    --theme-surface: #ffffff;
+    --theme-border: #e2e8f0;
+    --theme-text: #0f172a;
+    --theme-scroll-thumb: rgba(148, 163, 184, 0.4);
+    --theme-selection: #e2e8f0;
+  }
+
+  /* 8. GREEN THEME (MINT EMERALD BOTANICAL - ALL GREEN!) */
+  [data-theme="green"] {
+    --color-pink-50: #f0fdf4;
+    --color-pink-100: #dcfce7;
+    --color-pink-200: #bbf7d0;
+    --color-pink-300: #86efac;
+    --color-pink-400: #4ade80;
+    --color-pink-500: #10b981;
+    --color-pink-600: #059669;
+    --color-pink-700: #047857;
+    --color-pink-800: #065f46;
+    --color-pink-900: #064e3b;
+    --color-pink-950: #022c22;
+
+    --color-rose-50: #f0fdfa;
+    --color-rose-100: #ccfbf1;
+    --color-rose-200: #99f6e4;
+    --color-rose-300: #5eead4;
+    --color-rose-400: #2dd4bf;
+    --color-rose-500: #14b8a6;
+    --color-rose-600: #0d9488;
+    --color-rose-700: #0f766e;
+    --color-rose-800: #115e59;
+    --color-rose-900: #134e4a;
+    --color-rose-950: #042f2e;
+
+    --color-fuchsia-50: #f0fdf4;
+    --color-fuchsia-100: #dcfce7;
+    --color-fuchsia-200: #bbf7d0;
+    --color-fuchsia-300: #86efac;
+    --color-fuchsia-400: #4ade80;
+    --color-fuchsia-500: #059669;
+    --color-fuchsia-600: #047857;
+    --color-fuchsia-700: #065f46;
+    --color-fuchsia-800: #064e3b;
+    --color-fuchsia-900: #022c22;
+    --color-fuchsia-950: #011c15;
+
+    --theme-bg: #f0fdf4;
+    --theme-surface: #ffffff;
+    --theme-border: #bbf7d0;
+    --theme-text: #022c22;
+    --theme-scroll-thumb: rgba(16, 185, 129, 0.5);
+    --theme-selection: #bbf7d0;
+  }
+
+  /* 9. PURPLE THEME (ROYAL AMETHYST - ALL PURPLE!) */
+  [data-theme="purple"] {
+    --color-pink-50: #faf5ff;
+    --color-pink-100: #f3e8ff;
+    --color-pink-200: #e9d5ff;
+    --color-pink-300: #d8b4fe;
+    --color-pink-400: #c084fc;
+    --color-pink-500: #a855f7;
+    --color-pink-600: #9333ea;
+    --color-pink-700: #7e22ce;
+    --color-pink-800: #6b21a8;
+    --color-pink-900: #581c87;
+    --color-pink-950: #3b0764;
+
+    --color-rose-50: #fdf4ff;
+    --color-rose-100: #fae8ff;
+    --color-rose-200: #f5d0fe;
+    --color-rose-300: #f0abfc;
+    --color-rose-400: #e879f9;
+    --color-rose-500: #d946ef;
+    --color-rose-600: #c026d3;
+    --color-rose-700: #a21caf;
+    --color-rose-800: #86198f;
+    --color-rose-900: #701a75;
+    --color-rose-950: #4a044e;
+
+    --color-fuchsia-50: #faf5ff;
+    --color-fuchsia-100: #f3e8ff;
+    --color-fuchsia-200: #e9d5ff;
+    --color-fuchsia-300: #d8b4fe;
+    --color-fuchsia-400: #c084fc;
+    --color-fuchsia-500: #9333ea;
+    --color-fuchsia-600: #7e22ce;
+    --color-fuchsia-700: #6b21a8;
+    --color-fuchsia-800: #581c87;
+    --color-fuchsia-900: #3b0764;
+    --color-fuchsia-950: #260342;
+
+    --theme-bg: #faf5ff;
+    --theme-surface: #ffffff;
+    --theme-border: #e9d5ff;
+    --theme-text: #3b0764;
+    --theme-scroll-thumb: rgba(168, 85, 247, 0.5);
+    --theme-selection: #e9d5ff;
+  }
+
+  /* 10. RAINBOW THEME (PRISMATIC IRIDESCENT SPECTRUM!) */
+  [data-theme="rainbow"] {
+    --color-pink-50: #fdf2f8;
+    --color-pink-100: #ede9fe;
+    --color-pink-200: #bfdbfe;
+    --color-pink-300: #bbf7d0;
+    --color-pink-400: #fde047;
+    --color-pink-500: #ec4899;
+    --color-pink-600: #8b5cf6;
+    --color-pink-700: #3b82f6;
+    --color-pink-800: #10b981;
+    --color-pink-900: #581c87;
+    --color-pink-950: #1e1b4b;
+
+    --color-rose-50: #fffbeb;
+    --color-rose-100: #dcfce7;
+    --color-rose-200: #e0f2fe;
+    --color-rose-300: #fae8ff;
+    --color-rose-400: #fb7185;
+    --color-rose-500: #f59e0b;
+    --color-rose-600: #10b981;
+    --color-rose-700: #0284c7;
+    --color-rose-800: #7c3aed;
+    --color-rose-900: #be123c;
+    --color-rose-950: #4c0519;
+
+    --color-fuchsia-50: #fdf4ff;
+    --color-fuchsia-100: #ede9fe;
+    --color-fuchsia-200: #c7d2fe;
+    --color-fuchsia-300: #a7f3d0;
+    --color-fuchsia-400: #fde68a;
+    --color-fuchsia-500: #a855f7;
+    --color-fuchsia-600: #06b6d4;
+    --color-fuchsia-700: #10b981;
+    --color-fuchsia-800: #f59e0b;
+    --color-fuchsia-900: #e11d48;
+    --color-fuchsia-950: #1e1b4b;
+
+    --theme-bg: #fff1f4;
+    --theme-surface: #ffffff;
+    --theme-border: #fbcfe8;
+    --theme-text: #1e1b4b;
+    --theme-scroll-thumb: linear-gradient(135deg, #ef4444, #f59e0b, #10b981, #3b82f6, #8b5cf6);
+    --theme-selection: #fce7f3;
+  }
+
   body {
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    color: #4a1525;
-    background-color: #fff1f4;
+    color: var(--theme-text);
+    background-color: var(--theme-bg);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    transition: background-color 0.25s ease, color 0.25s ease;
   }
 
   code, kbd, samp, pre, .font-mono {
@@ -15,12 +476,37 @@
   }
 
   ::selection {
-    background-color: #fbcfe8;
-    color: #831843;
+    background-color: var(--theme-selection);
+    color: var(--theme-text);
   }
 }
 
-/* Cute pink scrollbar */
+/* Specific styling for Black/Dark theme to ensure cards & inputs remain beautifully dark */
+[data-theme="black"] .bg-white {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+}
+
+[data-theme="black"] .bg-white\/95,
+[data-theme="black"] .bg-white\/90,
+[data-theme="black"] .bg-white\/80 {
+  background-color: rgba(30, 41, 59, 0.95) !important;
+  color: #f8fafc !important;
+}
+
+[data-theme="black"] input,
+[data-theme="black"] select,
+[data-theme="black"] textarea {
+  background-color: #0f172a !important;
+  color: #ffffff !important;
+  border-color: #334155 !important;
+}
+
+[data-theme="black"] .border-slate-200 {
+  border-color: #334155 !important;
+}
+
+/* Cute dynamic theme scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -29,11 +515,8 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(244, 114, 182, 0.4);
+  background: var(--theme-scroll-thumb);
   border-radius: 9999px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(236, 72, 153, 0.7);
 }
 
 @keyframes wiggle {
@@ -45,6 +528,3 @@
 .animate-wiggle {
   animation: wiggle 1.2s ease-in-out infinite;
 }
-
-
-

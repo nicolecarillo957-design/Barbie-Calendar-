@@ -38,11 +38,31 @@ import { CuteToastContainer } from './components/CuteToastContainer';
 import { CycleGlowModal } from './components/CycleGlowModal';
 import { CalmSanctuaryModal } from './components/CalmSanctuaryModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
+import { BarbieDressUpModal } from './components/BarbieDressUpModal';
+import { FloatingBarbieCompanion } from './components/FloatingBarbieCompanion';
+import { ThemeSelectorModal } from './components/ThemeSelectorModal';
+import { DollOutfitState } from './types/doll';
+import { CalendarThemeId, THEME_CONFIGS } from './types/theme';
 
 const EVENTS_STORAGE_KEY = 'barbie_calendar_events_user_v1';
 const TASKS_STORAGE_KEY = 'barbie_calendar_tasks_user_v1';
 const NOTIFS_STORAGE_KEY = 'barbie_calendar_notifs_user_v1';
 const CYCLE_STORAGE_KEY = 'barbie_calendar_cycle_v1';
+const DOLL_STORAGE_KEY = 'blythe_doll_customization_v2';
+const COMPANION_STORAGE_KEY = 'blythe_companion_active_v2';
+const THEME_STORAGE_KEY = 'calendar_color_theme_v1';
+
+const DEFAULT_DOLL_STATE: DollOutfitState = {
+  gender: 'girl',
+  skinTone: 'porcelain-fair',
+  eyeColor: 'sapphire-blue',
+  eyeGaze: 'front',
+  hairstyle: 'blythe-signature-bangs',
+  outfit: 'distressed-boyfriend-jeans',
+  shoes: 'mary-jane-lace',
+  accessory: 'oversized-bow',
+  scene: 'dollhouse-room',
+};
 
 const INITIAL_NOTIFICATIONS: AppNotification[] = [
   {
@@ -182,8 +202,73 @@ export default function App() {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isCycleModalOpen, setIsCycleModalOpen] = useState(false);
   const [isCalmModalOpen, setIsCalmModalOpen] = useState(false);
+  const [isDressUpModalOpen, setIsDressUpModalOpen] = useState(false);
+  const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
 
-  // 9. Barbie Cycle & Period Settings
+  // 9. Calendar Color Theme State
+  const [currentTheme, setCurrentTheme] = useState<CalendarThemeId>(() => {
+    try {
+      const stored = localStorage.getItem(THEME_STORAGE_KEY) as CalendarThemeId | null;
+      if (stored && ['pink', 'blue', 'red', 'orange', 'black', 'yellow', 'white', 'green', 'purple', 'rainbow'].includes(stored)) {
+        return stored;
+      }
+    } catch (e) {
+      console.error('Failed reading theme from storage', e);
+    }
+    return 'pink';
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', currentTheme);
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, currentTheme);
+    } catch (e) {
+      console.error('Failed saving theme to storage', e);
+    }
+  }, [currentTheme]);
+
+  // 10. Barbie Doll Wardrobe & Companion State
+  const [dollState, setDollState] = useState<DollOutfitState>(() => {
+    try {
+      const stored = localStorage.getItem(DOLL_STORAGE_KEY);
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (e) {
+      console.error('Failed reading doll state from storage', e);
+    }
+    return DEFAULT_DOLL_STATE;
+  });
+
+  const [isCompanionActive, setIsCompanionActive] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem(COMPANION_STORAGE_KEY);
+      if (stored !== null) {
+        return JSON.parse(stored);
+      }
+    } catch (e) {
+      console.error('Failed reading companion state from storage', e);
+    }
+    return true; // Default floating companion visible
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(DOLL_STORAGE_KEY, JSON.stringify(dollState));
+    } catch (e) {
+      console.error('Failed saving doll state', e);
+    }
+  }, [dollState]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(COMPANION_STORAGE_KEY, JSON.stringify(isCompanionActive));
+    } catch (e) {
+      console.error('Failed saving companion state', e);
+    }
+  }, [isCompanionActive]);
+
+  // 10. Barbie Cycle & Period Settings
   const [cycleSettings, setCycleSettings] = useState<CycleSettings>(() => {
     try {
       const stored = localStorage.getItem(CYCLE_STORAGE_KEY);
@@ -639,6 +724,14 @@ export default function App() {
           e.preventDefault();
           setIsCalmModalOpen(true);
           break;
+        case 'b':
+          e.preventDefault();
+          setIsDressUpModalOpen(true);
+          break;
+        case 'p':
+          e.preventDefault();
+          setIsThemeModalOpen(true);
+          break;
         case 'n':
           e.preventDefault();
           handleSlotClick(formatDateKey(currentDate), '09:00');
@@ -672,6 +765,8 @@ export default function App() {
     isNotificationCenterOpen,
     isCycleModalOpen,
     isCalmModalOpen,
+    isDressUpModalOpen,
+    isThemeModalOpen,
   ]);
 
   // Filter upcoming events with reminders for today
@@ -690,8 +785,13 @@ export default function App() {
     return notifications.filter((n) => !n.isRead).length;
   }, [notifications]);
 
+  const activeThemeConfig = THEME_CONFIGS[currentTheme] || THEME_CONFIGS.pink;
+
   return (
-    <div className="flex flex-col h-screen w-screen bg-pink-50/50 overflow-hidden font-sans">
+    <div
+      className={`flex flex-col h-screen w-screen overflow-hidden font-sans transition-colors duration-200 ${activeThemeConfig.appBg}`}
+      data-theme={currentTheme}
+    >
       {/* 1. Universal Top Navigation Bar */}
       <TopNav
         currentView={currentView}
@@ -708,6 +808,9 @@ export default function App() {
         onOpenCycle={() => setIsCycleModalOpen(true)}
         cycleInfo={currentCycleInfo}
         onOpenCalmSanctuary={() => setIsCalmModalOpen(true)}
+        onOpenDressUp={() => setIsDressUpModalOpen(true)}
+        currentTheme={currentTheme}
+        onOpenThemeSelector={() => setIsThemeModalOpen(true)}
         onToggleSidebar={() => setIsMobileSidebarOpen((prev) => !prev)}
         unreadNotificationCount={unreadCount}
         searchQuery={searchQuery}
@@ -739,13 +842,16 @@ export default function App() {
             cycleSettings={cycleSettings}
             onOpenCycle={() => setIsCycleModalOpen(true)}
             onOpenCalmSanctuary={() => setIsCalmModalOpen(true)}
+            onOpenDressUp={() => setIsDressUpModalOpen(true)}
+            currentTheme={currentTheme}
+            onOpenThemeSelector={() => setIsThemeModalOpen(true)}
             isMobileOpen={isMobileSidebarOpen}
             onCloseMobile={() => setIsMobileSidebarOpen(false)}
           />
         )}
 
         {/* Viewport Content (with pb-16 on mobile for the mobile bottom nav bar) */}
-        <main className="flex-1 flex flex-col h-full overflow-hidden bg-pink-50/15 pb-16 md:pb-0">
+        <main className={`flex-1 flex flex-col h-full overflow-hidden pb-16 md:pb-0 transition-colors duration-200 ${activeThemeConfig.surfaceBg}`}>
           {currentView === 'week' && (
             <WeekView
               currentDate={currentDate}
@@ -863,6 +969,16 @@ export default function App() {
         tasks={tasks}
         onResetData={handleResetData}
         onImportJson={handleImportJson}
+        currentTheme={currentTheme}
+        onSelectTheme={setCurrentTheme}
+      />
+
+      {/* Calendar Color Theme Selector Modal */}
+      <ThemeSelectorModal
+        isOpen={isThemeModalOpen}
+        onClose={() => setIsThemeModalOpen(false)}
+        currentTheme={currentTheme}
+        onSelectTheme={setCurrentTheme}
       />
 
       <CycleGlowModal
@@ -910,6 +1026,24 @@ export default function App() {
         }}
       />
 
+      {/* Barbie Dress-Up Studio Modal */}
+      <BarbieDressUpModal
+        isOpen={isDressUpModalOpen}
+        onClose={() => setIsDressUpModalOpen(false)}
+        dollState={dollState}
+        onUpdateDollState={setDollState}
+        isCompanionActive={isCompanionActive}
+        onToggleCompanion={() => setIsCompanionActive((prev) => !prev)}
+      />
+
+      {/* Floating Barbie Doll Screen Companion */}
+      <FloatingBarbieCompanion
+        isVisible={isCompanionActive}
+        onOpenDressUp={() => setIsDressUpModalOpen(true)}
+        onDismiss={() => setIsCompanionActive(false)}
+        dollState={dollState}
+      />
+
       {/* 6. Mobile Bottom Navigation Bar (Visible on mobile/tablet) */}
       <MobileBottomNav
         currentView={currentView}
@@ -919,6 +1053,7 @@ export default function App() {
         }}
         onOpenCycle={() => setIsCycleModalOpen(true)}
         onOpenCalmSanctuary={() => setIsCalmModalOpen(true)}
+        onOpenDressUp={() => setIsDressUpModalOpen(true)}
         onOpenSidebar={() => setIsMobileSidebarOpen(true)}
         onNewEvent={() => handleSlotClick(formatDateKey(currentDate), '09:00')}
         cycleDay={currentCycleInfo.cycleDay}

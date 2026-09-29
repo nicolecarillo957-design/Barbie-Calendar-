@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import { cuteSound } from '../utils/cuteSound';
 
+import { CalendarThemeId, THEME_CONFIGS } from '../types/theme';
+
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -20,6 +22,8 @@ interface SettingsModalProps {
   tasks: UnscheduledTask[];
   onResetData: () => void;
   onImportJson: (data: { events: CalendarEvent[]; tasks: UnscheduledTask[] }) => void;
+  currentTheme?: CalendarThemeId;
+  onSelectTheme?: (theme: CalendarThemeId) => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -29,6 +33,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   tasks,
   onResetData,
   onImportJson,
+  currentTheme = 'pink',
+  onSelectTheme,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -97,7 +103,70 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         {/* Content */}
-        <div className="p-6 space-y-6">
+        <div className="p-6 space-y-6 max-h-[75vh] overflow-y-auto">
+          {/* Section 0: Calendar Color Theme Customizer */}
+          {onSelectTheme && (
+            <div className="p-4 bg-pink-50/70 border border-pink-200 rounded-2xl">
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-1.5 text-pink-900 font-extrabold text-xs uppercase tracking-wider">
+                  <span>🎨</span>
+                  <h4>Calendar Color Theme</h4>
+                </div>
+                <span className="text-[11px] font-extrabold text-pink-700 capitalize">
+                  {THEME_CONFIGS[currentTheme]?.name.split(' ')[0]} Active
+                </span>
+              </div>
+              <p className="text-xs text-pink-700 mb-3 font-medium">
+                Choose your personal calendar aesthetic: Pink, Blue, Red, Orange, Black, Yellow, White, Green, Purple, or Rainbow!
+              </p>
+
+              <div className="grid grid-cols-5 gap-2">
+                {(
+                  [
+                    'pink',
+                    'blue',
+                    'red',
+                    'orange',
+                    'black',
+                    'yellow',
+                    'white',
+                    'green',
+                    'purple',
+                    'rainbow',
+                  ] as const
+                ).map((themeId) => {
+                  const cfg = THEME_CONFIGS[themeId];
+                  const isSelected = currentTheme === themeId;
+                  return (
+                    <button
+                      key={themeId}
+                      onClick={() => {
+                        cuteSound.playCelebrationFanfare();
+                        onSelectTheme(themeId);
+                      }}
+                      className={`p-2 rounded-xl border flex flex-col items-center gap-1 transition-all ${
+                        isSelected
+                          ? 'border-pink-500 bg-white ring-2 ring-pink-400 shadow-sm'
+                          : 'border-pink-200 hover:border-pink-300 bg-white/70 hover:bg-white'
+                      }`}
+                      title={cfg.name}
+                    >
+                      <span
+                        className="w-6 h-6 rounded-full border shadow-2xs flex items-center justify-center text-xs"
+                        style={{ background: cfg.swatch, borderColor: cfg.swatchBorder }}
+                      >
+                        {isSelected ? '✓' : ''}
+                      </span>
+                      <span className="text-[10px] font-black text-slate-800 capitalize truncate w-full text-center">
+                        {themeId}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Section 1: Standard iCal Export */}
           <div className="p-4 bg-pink-50/70 border border-pink-200 rounded-2xl">
             <div className="flex items-center gap-1.5 mb-1 text-pink-900 font-extrabold text-xs uppercase tracking-wider">

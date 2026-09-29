@@ -153,6 +153,87 @@ class CuteSoundService {
       osc.stop(t + n.dur + 0.05);
     });
   }
+
+  /**
+   * Camera shutter sound for Barbie Polaroid fashion snaps
+   */
+  public playCameraClick() {
+    if (!this.soundEnabled) return;
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    // Quick white-noise burst and mechanical click
+    const bufferSize = ctx.sampleRate * 0.08;
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.02));
+    }
+
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.setValueAtTime(1000, ctx.currentTime);
+
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.07);
+
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+
+    noise.start(ctx.currentTime);
+
+    // Secondary shutter click
+    const osc = ctx.createOscillator();
+    const oscGain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(800, ctx.currentTime + 0.04);
+    osc.frequency.exponentialRampToValueAtTime(300, ctx.currentTime + 0.08);
+
+    oscGain.gain.setValueAtTime(0.001, ctx.currentTime);
+    oscGain.gain.setValueAtTime(0.2, ctx.currentTime + 0.04);
+    oscGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.09);
+
+    osc.connect(oscGain);
+    oscGain.connect(ctx.destination);
+
+    osc.start(ctx.currentTime + 0.04);
+    osc.stop(ctx.currentTime + 0.1);
+  }
+
+  /**
+   * Cute magical whoosh when changing outfits
+   */
+  public playOutfitWhoosh() {
+    if (!this.soundEnabled) return;
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(523.25, ctx.currentTime); // C5
+    osc.frequency.exponentialRampToValueAtTime(1318.51, ctx.currentTime + 0.15); // E6
+
+    gain.gain.setValueAtTime(0.18, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.22);
+
+    // Followed by little sparkle
+    setTimeout(() => {
+      this.playSparkle();
+    }, 60);
+  }
 }
 
 export const cuteSound = new CuteSoundService();

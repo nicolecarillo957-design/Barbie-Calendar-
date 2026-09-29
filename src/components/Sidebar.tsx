@@ -5,6 +5,7 @@ import {
   EventCategory, 
   UnscheduledTask 
 } from '../types/calendar';
+import { CalendarThemeId, THEME_CONFIGS } from '../types/theme';
 import { 
   CATEGORY_LIST, 
   getCategoryConfig 
@@ -50,6 +51,9 @@ interface SidebarProps {
   cycleSettings?: CycleSettings;
   onOpenCycle?: () => void;
   onOpenCalmSanctuary?: () => void;
+  onOpenDressUp?: () => void;
+  currentTheme?: CalendarThemeId;
+  onOpenThemeSelector?: () => void;
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
 }
@@ -70,6 +74,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   cycleSettings,
   onOpenCycle,
   onOpenCalmSanctuary,
+  onOpenDressUp,
+  currentTheme = 'pink',
+  onOpenThemeSelector,
   isMobileOpen = false,
   onCloseMobile,
 }) => {
@@ -321,6 +328,69 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             <Sparkles className="w-3 h-3 text-rose-500" />
             <span>Overload Triage & Breathing</span>
+          </button>
+        </div>
+      )}
+
+      {/* Barbie Dress-Up Doll Studio Card (Boredom Buster!) */}
+      {onOpenDressUp && (
+        <div className="p-3.5 border-b border-pink-200/80 bg-gradient-to-br from-pink-100/70 via-rose-50 to-pink-50">
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center gap-1.5">
+              <span className="text-base leading-none">👗</span>
+              <span className="text-xs font-black text-pink-950 uppercase tracking-tight">
+                Barbie Dress-Up
+              </span>
+            </div>
+            <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full bg-pink-200 text-pink-800">
+              Bored? ✨
+            </span>
+          </div>
+          <p className="text-[11px] text-pink-800 font-medium mb-2 leading-snug">
+            Need a fun break? Change Barbie's outfits, snap Polaroids, or get a cute pep-talk!
+          </p>
+          <button
+            onClick={() => {
+              if (onCloseMobile) onCloseMobile();
+              onOpenDressUp();
+            }}
+            className="w-full py-1.5 px-2 bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white rounded-xl text-xs font-extrabold shadow-2xs flex items-center justify-center gap-1.5 transition-transform active:scale-95"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Open Dressing Room 💖</span>
+          </button>
+        </div>
+      )}
+
+      {/* Calendar Color Theme Quick Selector Card */}
+      {onOpenThemeSelector && (
+        <div className="p-3.5 border-b border-pink-200/80 bg-gradient-to-br from-pink-50/60 to-rose-50/50">
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center gap-1.5">
+              <span className="text-base leading-none">🎨</span>
+              <span className="text-xs font-black text-pink-950 uppercase tracking-tight">
+                Calendar Theme
+              </span>
+            </div>
+            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-white border border-pink-300 text-pink-800 capitalize">
+              {THEME_CONFIGS[currentTheme || 'pink']?.name.split(' ')[0]}
+            </span>
+          </div>
+          <p className="text-[11px] text-pink-800 font-medium mb-2 leading-snug">
+            Choose from Pink, Blue, Red, Orange, Black, Yellow, White, Green, Purple, or Rainbow!
+          </p>
+          <button
+            onClick={() => {
+              if (onCloseMobile) onCloseMobile();
+              onOpenThemeSelector();
+            }}
+            className="w-full py-1.5 px-2 bg-white/95 hover:bg-white border border-pink-300 rounded-xl text-xs font-bold text-pink-800 shadow-2xs flex items-center justify-center gap-2 transition-transform active:scale-95"
+          >
+            <span
+              className="w-3.5 h-3.5 rounded-full border border-black/10 shadow-2xs shrink-0"
+              style={{ background: THEME_CONFIGS[currentTheme || 'pink']?.swatch || '#EC4899' }}
+            />
+            <span>Change Calendar Color 🎨</span>
           </button>
         </div>
       )}

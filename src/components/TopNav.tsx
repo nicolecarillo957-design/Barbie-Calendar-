@@ -3,6 +3,7 @@ import {
   CalendarViewType, 
   CyclePhaseInfo
 } from '../types/calendar';
+import { CalendarThemeId, THEME_CONFIGS } from '../types/theme';
 import { 
   ChevronLeft, 
   ChevronRight, 
@@ -13,7 +14,8 @@ import {
   Keyboard,
   Timer,
   Bell,
-  Menu
+  Menu,
+  Palette
 } from 'lucide-react';
 
 interface TopNavProps {
@@ -30,6 +32,9 @@ interface TopNavProps {
   onOpenCycle?: () => void;
   cycleInfo?: CyclePhaseInfo;
   onOpenCalmSanctuary?: () => void;
+  onOpenDressUp?: () => void;
+  currentTheme?: CalendarThemeId;
+  onOpenThemeSelector?: () => void;
   onToggleSidebar?: () => void;
   searchQuery: string;
   onSearchChange: (q: string) => void;
@@ -52,6 +57,9 @@ export const TopNav: React.FC<TopNavProps> = ({
   onOpenCycle,
   cycleInfo,
   onOpenCalmSanctuary,
+  onOpenDressUp,
+  currentTheme = 'pink',
+  onOpenThemeSelector,
   onToggleSidebar,
   searchQuery,
   onSearchChange,
@@ -204,6 +212,25 @@ export const TopNav: React.FC<TopNavProps> = ({
           <SlidersHorizontal className="w-4 h-4" />
         </button>
 
+        {/* Color Theme Selector Pill */}
+        {onOpenThemeSelector && (
+          <button
+            onClick={onOpenThemeSelector}
+            className="p-1.5 sm:px-2.5 sm:py-1.5 text-xs font-black rounded-xl border border-pink-300 bg-white hover:bg-pink-50 text-pink-900 shadow-2xs flex items-center gap-1.5 transition-all hover:scale-105 active:scale-95"
+            title="Choose Calendar Color Theme (Pink, Blue, Red, Orange, Black, Yellow, White, Green, Purple, Rainbow)"
+          >
+            <span
+              className="w-3.5 h-3.5 rounded-full border border-black/10 shadow-2xs shrink-0"
+              style={{
+                background: THEME_CONFIGS[currentTheme]?.swatch || '#EC4899',
+              }}
+            />
+            <span className="hidden md:inline capitalize font-bold text-[11px]">
+              {THEME_CONFIGS[currentTheme]?.name.split(' ')[0] || 'Theme'}
+            </span>
+          </button>
+        )}
+
         {/* Pink Cutesy Notification Bell Button */}
         <button
           onClick={onOpenNotifications}
@@ -243,6 +270,19 @@ export const TopNav: React.FC<TopNavProps> = ({
           >
             <span>🌸</span>
             <span className="hidden md:inline">De-Stress SOS</span>
+          </button>
+        )}
+
+        {/* Barbie Dress-Up Studio (Boredom Buster!) */}
+        {onOpenDressUp && (
+          <button
+            onClick={onOpenDressUp}
+            className="px-2 sm:px-2.5 py-1.5 text-xs font-extrabold rounded-xl border border-pink-400 bg-gradient-to-r from-pink-100 via-rose-50 to-pink-100 hover:from-pink-200 hover:to-rose-100 text-pink-900 shadow-2xs flex items-center gap-1.5 transition-all hover:scale-105 active:scale-95"
+            title="Bored? Dress Up Barbie! Change Outfits & Styles (Press B)"
+          >
+            <span className="text-sm">👗</span>
+            <span className="hidden sm:inline">Dress Up</span>
+            <span className="text-[10px] text-pink-600 font-black hidden lg:inline">✨</span>
           </button>
         )}
 

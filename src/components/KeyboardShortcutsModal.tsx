@@ -20,6 +20,8 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({
     { key: 'A', description: 'Switch to Barbie Time Audit & Glow 👑' },
     { key: 'C', description: 'Open Barbie Cycle & Period Glow 🩸' },
     { key: 'S', description: 'Open Barbie De-Stress & Overload SOS 🌸' },
+    { key: 'B', description: 'Bored? Dress Up Barbie Studio 👗✨' },
+    { key: 'P', description: 'Choose Calendar Color Theme 🎨' },
     { key: 'N', description: 'Create new scheduled timebox 💅' },
     { key: 'Space', description: 'Open / toggle Barbie Focus Sanctuary 💄' },
     { key: '/', description: 'Focus search bar 🔍' },
