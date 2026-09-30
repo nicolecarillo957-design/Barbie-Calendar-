@@ -90,7 +90,9 @@ export const MonthView: React.FC<MonthViewProps> = ({
           const maxVisible = 3;
           const visibleEvents = dayEvents.slice(0, maxVisible);
           const overflowCount = dayEvents.length - maxVisible;
-          const cycleStatus = cycleSettings ? getDayCycleStatus(dateStr, cycleSettings) : null;
+          const cycleStatus = (cycleSettings && cycleSettings.enabled !== false) 
+            ? getDayCycleStatus(dateStr, cycleSettings) 
+            : null;
 
           return (
             <div

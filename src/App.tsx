@@ -38,31 +38,15 @@ import { CuteToastContainer } from './components/CuteToastContainer';
 import { CycleGlowModal } from './components/CycleGlowModal';
 import { CalmSanctuaryModal } from './components/CalmSanctuaryModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
-import { BarbieDressUpModal } from './components/BarbieDressUpModal';
-import { FloatingBarbieCompanion } from './components/FloatingBarbieCompanion';
+import { TaskInboxModal } from './components/TaskInboxModal';
 import { ThemeSelectorModal } from './components/ThemeSelectorModal';
-import { DollOutfitState } from './types/doll';
 import { CalendarThemeId, THEME_CONFIGS } from './types/theme';
 
 const EVENTS_STORAGE_KEY = 'barbie_calendar_events_user_v1';
 const TASKS_STORAGE_KEY = 'barbie_calendar_tasks_user_v1';
 const NOTIFS_STORAGE_KEY = 'barbie_calendar_notifs_user_v1';
 const CYCLE_STORAGE_KEY = 'barbie_calendar_cycle_v1';
-const DOLL_STORAGE_KEY = 'blythe_doll_customization_v2';
-const COMPANION_STORAGE_KEY = 'blythe_companion_active_v2';
 const THEME_STORAGE_KEY = 'calendar_color_theme_v1';
-
-const DEFAULT_DOLL_STATE: DollOutfitState = {
-  gender: 'girl',
-  skinTone: 'porcelain-fair',
-  eyeColor: 'sapphire-blue',
-  eyeGaze: 'front',
-  hairstyle: 'blythe-signature-bangs',
-  outfit: 'distressed-boyfriend-jeans',
-  shoes: 'mary-jane-lace',
-  accessory: 'oversized-bow',
-  scene: 'dollhouse-room',
-};
 
 const INITIAL_NOTIFICATIONS: AppNotification[] = [
   {
@@ -203,7 +187,7 @@ export default function App() {
   const [isCycleModalOpen, setIsCycleModalOpen] = useState(false);
 const [showCycleTracking, setShowCycleTracking] = useState(true);
   const [isCalmModalOpen, setIsCalmModalOpen] = useState(false);
-  const [isDressUpModalOpen, setIsDressUpModalOpen] = useState(false);
+  const [isTaskInboxOpen, setIsTaskInboxOpen] = useState(false);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
 
   // 9. Calendar Color Theme State
@@ -228,47 +212,6 @@ const [showCycleTracking, setShowCycleTracking] = useState(true);
     }
   }, [currentTheme]);
 
-  // 10. Barbie Doll Wardrobe & Companion State
-  const [dollState, setDollState] = useState<DollOutfitState>(() => {
-    try {
-      const stored = localStorage.getItem(DOLL_STORAGE_KEY);
-      if (stored) {
-        return JSON.parse(stored);
-      }
-    } catch (e) {
-      console.error('Failed reading doll state from storage', e);
-    }
-    return DEFAULT_DOLL_STATE;
-  });
-
-  const [isCompanionActive, setIsCompanionActive] = useState<boolean>(() => {
-    try {
-      const stored = localStorage.getItem(COMPANION_STORAGE_KEY);
-      if (stored !== null) {
-        return JSON.parse(stored);
-      }
-    } catch (e) {
-      console.error('Failed reading companion state from storage', e);
-    }
-    return true; // Default floating companion visible
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(DOLL_STORAGE_KEY, JSON.stringify(dollState));
-    } catch (e) {
-      console.error('Failed saving doll state', e);
-    }
-  }, [dollState]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(COMPANION_STORAGE_KEY, JSON.stringify(isCompanionActive));
-    } catch (e) {
-      console.error('Failed saving companion state', e);
-    }
-  }, [isCompanionActive]);
-
   // 10. Barbie Cycle & Period Settings
   const [cycleSettings, setCycleSettings] = useState<CycleSettings>(() => {
     try {
@@ -290,9 +233,12 @@ const [showCycleTracking, setShowCycleTracking] = useState(true);
     }
   }, [cycleSettings]);
 
+  const isCycleTrackingEnabled = cycleSettings.enabled !== false;
+
   const currentCycleInfo = useMemo(() => {
+    if (!isCycleTrackingEnabled) return undefined;
     return getCurrentCycleInfo(currentDate, cycleSettings);
-  }, [currentDate, cycleSettings]);
+  }, [currentDate, cycleSettings, isCycleTrackingEnabled]);
 
   // Trigger Notification Function
   const triggerNotification = useCallback((notifData: {
@@ -686,7 +632,8 @@ const [showCycleTracking, setShowCycleTracking] = useState(true);
         isSettingsOpen ||
         isNotificationCenterOpen ||
         isCycleModalOpen ||
-        isCalmModalOpen
+        isCalmModalOpen ||
+        isTaskInboxOpen
       ) {
         if (e.key === 'Escape') {
           setIsEventModalOpen(false);
@@ -696,6 +643,7 @@ const [showCycleTracking, setShowCycleTracking] = useState(true);
           setIsNotificationCenterOpen(false);
           setIsCycleModalOpen(false);
           setIsCalmModalOpen(false);
+          setIsTaskInboxOpen(false);
         }
         return;
       }
@@ -718,16 +666,18 @@ const [showCycleTracking, setShowCycleTracking] = useState(true);
           break;
         case 'c':
           e.preventDefault();
-          setIsCycleModalOpen(true);
+          if (isCycleTrackingEnabled) {
+            setIsCycleModalOpen(true);
+          }
           break;
         case 's':
         case 'o':
           e.preventDefault();
           setIsCalmModalOpen(true);
           break;
-        case 'b':
+        case 'i':
           e.preventDefault();
-          setIsDressUpModalOpen(true);
+          setIsTaskInboxOpen(true);
           break;
         case 'p':
           e.preventDefault();
@@ -766,8 +716,9 @@ const [showCycleTracking, setShowCycleTracking] = useState(true);
     isNotificationCenterOpen,
     isCycleModalOpen,
     isCalmModalOpen,
-    isDressUpModalOpen,
+    isTaskInboxOpen,
     isThemeModalOpen,
+    isCycleTrackingEnabled,
   ]);
 
   // Filter upcoming events with reminders for today
@@ -809,7 +760,8 @@ const [showCycleTracking, setShowCycleTracking] = useState(true);
         onOpenCycle={() => setIsCycleModalOpen(true)}
         cycleInfo={currentCycleInfo}
         onOpenCalmSanctuary={() => setIsCalmModalOpen(true)}
-        onOpenDressUp={() => setIsDressUpModalOpen(true)}
+        onOpenInbox={() => setIsTaskInboxOpen(true)}
+        pendingTaskCount={tasks.filter((t) => !t.completed).length}
         currentTheme={currentTheme}
         onOpenThemeSelector={() => setIsThemeModalOpen(true)}
         onToggleSidebar={() => setIsMobileSidebarOpen((prev) => !prev)}
@@ -843,7 +795,6 @@ const [showCycleTracking, setShowCycleTracking] = useState(true);
             cycleSettings={cycleSettings}
             onOpenCycle={() => setIsCycleModalOpen(true)}
             onOpenCalmSanctuary={() => setIsCalmModalOpen(true)}
-            onOpenDressUp={() => setIsDressUpModalOpen(true)}
             currentTheme={currentTheme}
             onOpenThemeSelector={() => setIsThemeModalOpen(true)}
             isMobileOpen={isMobileSidebarOpen}
@@ -931,7 +882,7 @@ const [showCycleTracking, setShowCycleTracking] = useState(true);
         onClearAll={handleClearAllNotifications}
         onSnooze={handleSnooze}
         onTriggerTestReminder={handleTriggerTestReminder}
-        onTriggerCycleMorningNotification={handleTriggerCycleMorningNotification}
+        onTriggerCycleMorningNotification={isCycleTrackingEnabled ? handleTriggerCycleMorningNotification : undefined}
         onSelectEvent={(ev) => {
           setIsNotificationCenterOpen(false);
           handleSelectEvent(ev);
@@ -972,6 +923,13 @@ const [showCycleTracking, setShowCycleTracking] = useState(true);
         onImportJson={handleImportJson}
         currentTheme={currentTheme}
         onSelectTheme={setCurrentTheme}
+        isCycleTrackingEnabled={isCycleTrackingEnabled}
+        onToggleCycleTracking={(enabled) => {
+          setCycleSettings((prev) => ({
+            ...prev,
+            enabled,
+          }));
+        }}
       />
 
       {/* Calendar Color Theme Selector Modal */}
@@ -1027,22 +985,16 @@ const [showCycleTracking, setShowCycleTracking] = useState(true);
         }}
       />
 
-      {/* Barbie Dress-Up Studio Modal */}
-      <BarbieDressUpModal
-        isOpen={isDressUpModalOpen}
-        onClose={() => setIsDressUpModalOpen(false)}
-        dollState={dollState}
-        onUpdateDollState={setDollState}
-        isCompanionActive={isCompanionActive}
-        onToggleCompanion={() => setIsCompanionActive((prev) => !prev)}
-      />
-
-      {/* Floating Barbie Doll Screen Companion */}
-      <FloatingBarbieCompanion
-        isVisible={isCompanionActive}
-        onOpenDressUp={() => setIsDressUpModalOpen(true)}
-        onDismiss={() => setIsCompanionActive(false)}
-        dollState={dollState}
+      {/* Task Inbox & Backlog Modal (Universal, works on mobile & desktop) */}
+      <TaskInboxModal
+        isOpen={isTaskInboxOpen}
+        onClose={() => setIsTaskInboxOpen(false)}
+        tasks={tasks}
+        onAddTask={handleAddTask}
+        onToggleTaskComplete={handleToggleTaskComplete}
+        onDeleteTask={handleDeleteTask}
+        onScheduleTask={handleScheduleTask}
+        onToggleTaskReminder={handleToggleTaskReminder}
       />
 
       {/* 6. Mobile Bottom Navigation Bar (Visible on mobile/tablet) */}
@@ -1054,11 +1006,13 @@ const [showCycleTracking, setShowCycleTracking] = useState(true);
         }}
         onOpenCycle={() => setIsCycleModalOpen(true)}
         onOpenCalmSanctuary={() => setIsCalmModalOpen(true)}
-        onOpenDressUp={() => setIsDressUpModalOpen(true)}
+        onOpenInbox={() => setIsTaskInboxOpen(true)}
         onOpenSidebar={() => setIsMobileSidebarOpen(true)}
         onNewEvent={() => handleSlotClick(formatDateKey(currentDate), '09:00')}
-        cycleDay={currentCycleInfo.cycleDay}
-        isPeriod={currentCycleInfo.isPeriod}
+        cycleDay={currentCycleInfo?.cycleDay}
+        isPeriod={currentCycleInfo?.isPeriod}
+        isCycleEnabled={isCycleTrackingEnabled}
+        pendingTaskCount={tasks.filter((t) => !t.completed).length}
       />
     </div>
   );

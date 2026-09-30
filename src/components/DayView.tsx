@@ -152,7 +152,7 @@ export const DayView: React.FC<DayViewProps> = ({
                 </span>
               </>
             )}
-            {cycleSettings && (
+            {cycleSettings && cycleSettings.enabled !== false && (
               <>
                 <span aria-hidden="true" className="text-pink-300">·</span>
                 {(() => {

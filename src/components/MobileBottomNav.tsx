@@ -3,24 +3,23 @@ import { CalendarViewType } from '../types/calendar';
 import { 
   Calendar as CalendarIcon, 
   Columns, 
-  Sparkles, 
-  Heart, 
   Plus, 
   Layers, 
-  Smile,
-  Bell
+  Inbox
 } from 'lucide-react';
 
 interface MobileBottomNavProps {
   currentView: CalendarViewType;
   onViewChange: (view: CalendarViewType) => void;
-  onOpenCycle: () => void;
+  onOpenCycle?: () => void;
   onOpenCalmSanctuary: () => void;
-  onOpenDressUp: () => void;
+  onOpenInbox: () => void;
   onOpenSidebar: () => void;
   onNewEvent: () => void;
   cycleDay?: number;
   isPeriod?: boolean;
+  isCycleEnabled?: boolean;
+  pendingTaskCount?: number;
 }
 
 export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
@@ -28,11 +27,13 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   onViewChange,
   onOpenCycle,
   onOpenCalmSanctuary,
-  onOpenDressUp,
+  onOpenInbox,
   onOpenSidebar,
   onNewEvent,
   cycleDay,
   isPeriod,
+  isCycleEnabled = true,
+  pendingTaskCount = 0,
 }) => {
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-white/95 backdrop-blur-md border-t border-pink-200 z-40 flex items-center justify-around px-1 shadow-lg safe-bottom">
@@ -70,44 +71,53 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
         <span className="text-[9px] text-pink-600 font-extrabold mt-0.5">+Box</span>
       </button>
 
-      {/* 4. Dress Up Doll (Boredom Buster!) */}
+      {/* 4. Dedicated Inbox / Tasks Button (Always visible on mobile!) */}
       <button
-        onClick={onOpenDressUp}
-        className="flex flex-col items-center justify-center flex-1 py-1 text-pink-500 hover:text-pink-700 transition-colors"
-        title="Bored? Dress Up Barbie!"
+        onClick={onOpenInbox}
+        className="relative flex flex-col items-center justify-center flex-1 py-1 text-pink-600 hover:text-pink-800 transition-colors"
+        title="Open Task Inbox & Backlog"
       >
-        <span className="text-base leading-none">👗</span>
-        <span className="text-[9px] mt-0.5 font-bold text-pink-600">Dress</span>
+        <Inbox className="w-4 h-4" />
+        {pendingTaskCount > 0 && (
+          <span className="absolute top-0 right-3 w-3.5 h-3.5 rounded-full bg-pink-500 text-white font-mono text-[8px] font-bold flex items-center justify-center shadow-xs">
+            {pendingTaskCount > 9 ? '9+' : pendingTaskCount}
+          </span>
+        )}
+        <span className="text-[9px] mt-0.5 font-bold text-pink-600">Inbox</span>
       </button>
 
       {/* 5. De-Stress SOS */}
       <button
         onClick={onOpenCalmSanctuary}
         className="flex flex-col items-center justify-center flex-1 py-1 text-rose-500 hover:text-rose-700 transition-colors"
+        title="De-Stress Sanctuary"
       >
         <span className="text-base leading-none">🌸</span>
         <span className="text-[9px] mt-0.5 font-bold text-rose-600">Calm</span>
       </button>
 
-      {/* 6. Cycle Glow */}
-      <button
-        onClick={onOpenCycle}
-        className="flex flex-col items-center justify-center flex-1 py-1 text-pink-500 hover:text-pink-700 transition-colors"
-      >
-        <span className="text-base leading-none">{isPeriod ? '🩸' : '👑'}</span>
-        <span className="text-[9px] mt-0.5 font-bold text-pink-700">
-          {cycleDay ? `D${cycleDay}` : 'Cycle'}
-        </span>
-      </button>
+      {/* 6. Cycle Glow (Optional for boys / non-menstruating users) */}
+      {isCycleEnabled && onOpenCycle && (
+        <button
+          onClick={onOpenCycle}
+          className="flex flex-col items-center justify-center flex-1 py-1 text-pink-500 hover:text-pink-700 transition-colors"
+          title="Menstruation & Cycle Glow"
+        >
+          <span className="text-base leading-none">{isPeriod ? '🩸' : '👑'}</span>
+          <span className="text-[9px] mt-0.5 font-bold text-pink-700">
+            {cycleDay ? `D${cycleDay}` : 'Cycle'}
+          </span>
+        </button>
+      )}
 
-      {/* 7. Sidebar & Backlog Drawer */}
+      {/* 7. Sidebar / Menu Drawer */}
       <button
         onClick={onOpenSidebar}
         className="flex flex-col items-center justify-center flex-1 py-1 text-pink-400 hover:text-pink-600 transition-colors"
-        title="Open Sidebar, Categories & Backlog"
+        title="Open Full Sidebar Drawer"
       >
         <Layers className="w-4 h-4" />
-        <span className="text-[9px] mt-0.5 font-bold">Tasks</span>
+        <span className="text-[9px] mt-0.5 font-bold">More</span>
       </button>
     </nav>
   );

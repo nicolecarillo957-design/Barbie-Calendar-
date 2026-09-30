@@ -50,6 +50,7 @@ export const CycleGlowModal: React.FC<CycleGlowModalProps> = ({
   onScheduleSelfCare,
   onTriggerMorningMessage,
 }) => {
+  const [cycleEnabled, setCycleEnabled] = useState(settings.enabled !== false);
   const [isEditingSettings, setIsEditingSettings] = useState(false);
   const [lastStart, setLastStart] = useState(settings.lastPeriodStartDate);
   const [cycleLength, setCycleLength] = useState(settings.cycleLengthDays);
@@ -71,7 +72,7 @@ export const CycleGlowModal: React.FC<CycleGlowModalProps> = ({
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
     onUpdateSettings({
-      enabled: true,
+      enabled: cycleEnabled,
       lastPeriodStartDate: lastStart,
       cycleLengthDays: Math.max(20, Math.min(45, cycleLength)),
       periodDurationDays: Math.max(2, Math.min(10, periodDuration)),
@@ -148,33 +149,33 @@ export const CycleGlowModal: React.FC<CycleGlowModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-pink-950/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl border-2 border-pink-300 overflow-hidden my-6 text-pink-950 animate-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 bg-pink-950/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+      <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl border-2 border-pink-300 overflow-hidden my-auto max-h-[92vh] flex flex-col text-pink-950 animate-in zoom-in-95 duration-200">
         {/* Header Bar */}
-        <div className="p-4 bg-gradient-to-r from-pink-200 via-rose-100 to-pink-200 border-b border-pink-300 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <span className="w-9 h-9 rounded-full bg-white text-pink-600 flex items-center justify-center shadow-xs border border-pink-300 text-lg">
+        <div className="p-3 sm:p-4 bg-gradient-to-r from-pink-200 via-rose-100 to-pink-200 border-b border-pink-300 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+            <span className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-white text-pink-600 flex items-center justify-center shadow-xs border border-pink-300 text-base sm:text-lg shrink-0">
               {cycleInfo.icon}
             </span>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-extrabold text-pink-950 tracking-tight">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <h3 className="text-xs sm:text-sm font-extrabold text-pink-950 tracking-tight truncate">
                   Barbie Cycle & Phase Glow
                 </h3>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-pink-500 text-white shadow-2xs font-mono">
-                  Day {cycleInfo.cycleDay} of {cycleInfo.cycleLength}
+                <span className="px-1.5 py-0.2 sm:px-2 sm:py-0.5 rounded-full text-[9px] sm:text-[10px] font-extrabold bg-pink-500 text-white shadow-2xs font-mono shrink-0">
+                  Day {cycleInfo.cycleDay}
                 </span>
               </div>
-              <p className="text-[11px] text-pink-700 font-medium">
-                {cycleInfo.seasonName} · Hormonal cadence & body intelligence
+              <p className="text-[10px] sm:text-[11px] text-pink-700 font-medium truncate">
+                {cycleInfo.seasonName} · Hormonal cadence
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1 shrink-0">
             <button
               onClick={() => setActiveTab(activeTab === 'settings' ? 'guidance' : 'settings')}
-              className={`p-2 rounded-xl transition-colors ${
+              className={`p-1.5 sm:p-2 rounded-xl transition-colors ${
                 activeTab === 'settings'
                   ? 'bg-pink-500 text-white'
                   : 'text-pink-700 hover:text-pink-900 hover:bg-pink-200/70'
@@ -185,146 +186,148 @@ export const CycleGlowModal: React.FC<CycleGlowModalProps> = ({
             </button>
             <button
               onClick={onClose}
-              className="p-2 text-pink-700 hover:text-pink-900 hover:bg-pink-200/70 rounded-xl transition-colors"
+              className="p-1.5 sm:p-2 text-pink-700 hover:text-pink-900 hover:bg-pink-200/70 rounded-xl transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* Hero Card: Current Phase & Next Period Prediction */}
-        <div className="p-6 bg-gradient-to-br from-pink-50 via-rose-50/70 to-pink-100/60 border-b border-pink-200">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-            {/* Cycle Ring / Dial */}
-            <div className="flex flex-col items-center justify-center p-3 bg-white/90 rounded-2xl border border-pink-200 shadow-xs">
-              <div className="relative w-28 h-28 flex items-center justify-center">
-                <svg className="w-full h-full -rotate-90 transform" viewBox="0 0 100 100">
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="40"
-                    className="text-pink-100"
-                    strokeWidth="8"
-                    stroke="currentColor"
-                    fill="transparent"
-                  />
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="40"
-                    className="text-pink-500 transition-all duration-500"
-                    strokeWidth="8"
-                    strokeDasharray={251.2}
-                    strokeDashoffset={251.2 - (251.2 * (cycleInfo.cycleDay / cycleInfo.cycleLength))}
-                    strokeLinecap="round"
-                    stroke="currentColor"
-                    fill="transparent"
-                  />
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-                  <span className="text-xl font-black text-pink-950 font-mono">
-                    Day {cycleInfo.cycleDay}
-                  </span>
-                  <span className="text-[10px] font-bold text-pink-500 uppercase tracking-wider">
-                    {cycleInfo.phase}
-                  </span>
-                </div>
-              </div>
-              <span className="text-[11px] font-bold text-pink-700 mt-2">
-                {cycleInfo.seasonName}
-              </span>
-            </div>
-
-            {/* Middle: Phase Title & Status */}
-            <div className="md:col-span-2 space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className={`px-3 py-1 rounded-full text-xs font-black shadow-2xs border ${phaseConfig.badgeClass} flex items-center gap-1.5`}>
-                  <span>{phaseConfig.icon}</span>
-                  <span>{phaseConfig.name}</span>
-                </span>
-                {cycleInfo.isPeriod && (
-                  <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500 text-white shadow-xs animate-pulse">
-                    🩸 Period Active
-                  </span>
-                )}
-                {cycleInfo.isOvulation && (
-                  <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-fuchsia-500 text-white shadow-xs animate-pulse">
-                    ✨ Peak Ovulation
-                  </span>
-                )}
-              </div>
-
-              <h2 className="text-lg font-black text-pink-950 leading-tight">
-                {cycleInfo.energyLevel}
-              </h2>
-              <p className="text-xs text-pink-800 font-medium leading-relaxed">
-                {cycleInfo.hormones}
-              </p>
-
-              {/* Next Period Prediction Banner */}
-              <div className="p-3 bg-white/95 rounded-xl border border-pink-200/90 flex items-center justify-between shadow-2xs">
-                <div className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-pink-500" />
-                  <div>
-                    <span className="text-[11px] font-bold text-pink-900 block">
-                      Next Period Expected:
+        {/* Scrollable Container for Modal Body */}
+        <div className="flex-1 overflow-y-auto">
+          {/* Hero Card: Current Phase & Next Period Prediction */}
+          <div className="p-4 sm:p-6 bg-gradient-to-br from-pink-50 via-rose-50/70 to-pink-100/60 border-b border-pink-200">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4 items-center">
+              {/* Cycle Ring / Dial */}
+              <div className="flex flex-row md:flex-col items-center justify-around md:justify-center p-2.5 sm:p-3 bg-white/90 rounded-2xl border border-pink-200 shadow-xs gap-3">
+                <div className="relative w-20 h-20 sm:w-28 sm:h-28 flex items-center justify-center shrink-0">
+                  <svg className="w-full h-full -rotate-90 transform" viewBox="0 0 100 100">
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="40"
+                      className="text-pink-100"
+                      strokeWidth="8"
+                      stroke="currentColor"
+                      fill="transparent"
+                    />
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="40"
+                      className="text-pink-500 transition-all duration-500"
+                      strokeWidth="8"
+                      strokeDasharray={251.2}
+                      strokeDashoffset={251.2 - (251.2 * (cycleInfo.cycleDay / cycleInfo.cycleLength))}
+                      strokeLinecap="round"
+                      stroke="currentColor"
+                      fill="transparent"
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                    <span className="text-base sm:text-xl font-black text-pink-950 font-mono">
+                      Day {cycleInfo.cycleDay}
                     </span>
-                    <span className="text-xs font-extrabold text-pink-950 font-mono">
-                      {cycleInfo.nextPeriodDate}
+                    <span className="text-[9px] sm:text-[10px] font-bold text-pink-500 uppercase tracking-wider">
+                      {cycleInfo.phase}
                     </span>
                   </div>
                 </div>
-                <div className="text-right">
-                  <span className="text-[10px] uppercase font-bold text-pink-500 block">
-                    Countdown
+                <span className="text-[10px] sm:text-[11px] font-bold text-pink-700">
+                  {cycleInfo.seasonName}
+                </span>
+              </div>
+
+              {/* Middle: Phase Title & Status */}
+              <div className="md:col-span-2 space-y-1.5 sm:space-y-2">
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                  <span className={`px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full text-xs font-black shadow-2xs border ${phaseConfig.badgeClass} flex items-center gap-1.5`}>
+                    <span>{phaseConfig.icon}</span>
+                    <span>{phaseConfig.name}</span>
                   </span>
-                  <span className="text-xs font-extrabold text-pink-600 font-mono">
-                    in {cycleInfo.daysUntilNextPeriod} {cycleInfo.daysUntilNextPeriod === 1 ? 'day' : 'days'} 🌸
-                  </span>
+                  {cycleInfo.isPeriod && (
+                    <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[11px] sm:text-xs font-bold bg-rose-500 text-white shadow-xs animate-pulse">
+                      🩸 Period Active
+                    </span>
+                  )}
+                  {cycleInfo.isOvulation && (
+                    <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[11px] sm:text-xs font-bold bg-fuchsia-500 text-white shadow-xs animate-pulse">
+                      ✨ Peak Ovulation
+                    </span>
+                  )}
+                </div>
+
+                <h2 className="text-base sm:text-lg font-black text-pink-950 leading-tight">
+                  {cycleInfo.energyLevel}
+                </h2>
+                <p className="text-[11px] sm:text-xs text-pink-800 font-medium leading-relaxed">
+                  {cycleInfo.hormones}
+                </p>
+
+                {/* Next Period Prediction Banner */}
+                <div className="p-2.5 sm:p-3 bg-white/95 rounded-xl border border-pink-200/90 flex items-center justify-between shadow-2xs">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-pink-500 shrink-0" />
+                    <div>
+                      <span className="text-[10px] sm:text-[11px] font-bold text-pink-900 block">
+                        Next Period Expected:
+                      </span>
+                      <span className="text-xs sm:text-sm font-extrabold text-pink-950 font-mono">
+                        {cycleInfo.nextPeriodDate}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[9px] sm:text-[10px] uppercase font-bold text-pink-500 block">
+                      Countdown
+                    </span>
+                    <span className="text-xs sm:text-sm font-extrabold text-pink-600 font-mono">
+                      in {cycleInfo.daysUntilNextPeriod} {cycleInfo.daysUntilNextPeriod === 1 ? 'day' : 'days'} 🌸
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Tab Navigation */}
-        <div className="px-6 pt-3 pb-0 bg-white border-b border-pink-100 flex items-center gap-4 text-xs font-bold">
-          <button
-            onClick={() => setActiveTab('guidance')}
-            className={`pb-2.5 border-b-2 transition-all flex items-center gap-1.5 ${
-              activeTab === 'guidance'
-                ? 'border-pink-500 text-pink-900 font-extrabold'
-                : 'border-transparent text-pink-500 hover:text-pink-800'
-            }`}
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>What You Should Do Today</span>
-          </button>
+          {/* Tab Navigation */}
+          <div className="px-4 sm:px-6 pt-2 sm:pt-3 pb-0 bg-white border-b border-pink-100 flex items-center gap-2 sm:gap-4 text-xs font-bold overflow-x-auto whitespace-nowrap">
+            <button
+              onClick={() => setActiveTab('guidance')}
+              className={`pb-2 border-b-2 transition-all flex items-center gap-1.5 shrink-0 ${
+                activeTab === 'guidance'
+                  ? 'border-pink-500 text-pink-900 font-extrabold'
+                  : 'border-transparent text-pink-500 hover:text-pink-800'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Recommendations</span>
+            </button>
 
-          <button
-            onClick={() => setActiveTab('phases')}
-            className={`pb-2.5 border-b-2 transition-all flex items-center gap-1.5 ${
-              activeTab === 'phases'
-                ? 'border-pink-500 text-pink-900 font-extrabold'
-                : 'border-transparent text-pink-500 hover:text-pink-800'
-            }`}
-          >
-            <Clock className="w-3.5 h-3.5" />
-            <span>All 4 Cycle Seasons</span>
-          </button>
+            <button
+              onClick={() => setActiveTab('phases')}
+              className={`pb-2 border-b-2 transition-all flex items-center gap-1.5 shrink-0 ${
+                activeTab === 'phases'
+                  ? 'border-pink-500 text-pink-900 font-extrabold'
+                  : 'border-transparent text-pink-500 hover:text-pink-800'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>4 Seasons</span>
+            </button>
 
-          <button
-            onClick={() => setActiveTab('settings')}
-            className={`pb-2.5 border-b-2 transition-all flex items-center gap-1.5 ${
-              activeTab === 'settings'
-                ? 'border-pink-500 text-pink-900 font-extrabold'
-                : 'border-transparent text-pink-500 hover:text-pink-800'
-            }`}
-          >
-            <Sliders className="w-3.5 h-3.5" />
-            <span>Edit My Cycle</span>
-          </button>
-        </div>
+            <button
+              onClick={() => setActiveTab('settings')}
+              className={`pb-2 border-b-2 transition-all flex items-center gap-1.5 shrink-0 ${
+                activeTab === 'settings'
+                  ? 'border-pink-500 text-pink-900 font-extrabold'
+                  : 'border-transparent text-pink-500 hover:text-pink-800'
+              }`}
+            >
+              <Sliders className="w-3.5 h-3.5" />
+              <span>Edit Cycle</span>
+            </button>
+          </div>
 
         {/* Tab 1: Actionable Guidance ("What they should do") */}
         {activeTab === 'guidance' && (
@@ -519,7 +522,42 @@ export const CycleGlowModal: React.FC<CycleGlowModalProps> = ({
         {/* Tab 3: Settings Form */}
         {activeTab === 'settings' && (
           <form onSubmit={handleSaveSettings} className="p-6 space-y-4 max-h-[420px] overflow-y-auto">
-            <div className="p-4 bg-pink-50/70 border border-pink-200 rounded-2xl space-y-3">
+            {/* Master Toggle: Enable / Disable Menstruation Tracking */}
+            <div className="p-4 bg-white border border-pink-300 rounded-2xl flex items-center justify-between shadow-2xs">
+              <div>
+                <h4 className="text-xs font-black uppercase tracking-wider text-pink-950 flex items-center gap-1.5">
+                  <span>🩸</span>
+                  <span>Enable Menstruation & Period Tracking</span>
+                </h4>
+                <p className="text-[11px] text-pink-700 font-medium mt-0.5">
+                  Turn OFF if boys or anyone not experiencing menstruation is using this app.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const nextVal = !cycleEnabled;
+                  setCycleEnabled(nextVal);
+                  if (nextVal) {
+                    cuteSound.playSparkle();
+                  } else {
+                    cuteSound.playCutePop();
+                  }
+                }}
+                className={`w-12 h-6 rounded-full transition-colors relative flex items-center px-0.5 shrink-0 ml-3 ${
+                  cycleEnabled ? 'bg-pink-500' : 'bg-slate-300'
+                }`}
+              >
+                <div
+                  className={`w-5 h-5 rounded-full bg-white shadow-xs transition-transform transform ${
+                    cycleEnabled ? 'translate-x-6' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            <div className={`p-4 bg-pink-50/70 border border-pink-200 rounded-2xl space-y-3 transition-opacity ${!cycleEnabled ? 'opacity-40 pointer-events-none' : ''}`}>
               <h4 className="text-xs font-extrabold uppercase tracking-wider text-pink-900 flex items-center gap-1.5">
                 <Sliders className="w-3.5 h-3.5 text-pink-500" />
                 <span>Personalize Your Cycle & Period Dates</span>
@@ -659,9 +697,10 @@ export const CycleGlowModal: React.FC<CycleGlowModalProps> = ({
             </div>
           </form>
         )}
+        </div>
 
         {/* Footer Actions */}
-        <div className="p-4 bg-pink-50/80 border-t border-pink-200 flex flex-wrap items-center justify-between gap-3">
+        <div className="p-4 bg-pink-50/80 border-t border-pink-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <button
             onClick={handleAddPhaseTimebox}
             className="px-4 py-2 text-xs font-extrabold text-pink-800 bg-white hover:bg-pink-100 border border-pink-300 rounded-xl shadow-2xs flex items-center gap-1.5 transition-colors"

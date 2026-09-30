@@ -51,7 +51,6 @@ interface SidebarProps {
   cycleSettings?: CycleSettings;
   onOpenCycle?: () => void;
   onOpenCalmSanctuary?: () => void;
-  onOpenDressUp?: () => void;
   currentTheme?: CalendarThemeId;
   onOpenThemeSelector?: () => void;
   isMobileOpen?: boolean;
@@ -74,12 +73,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   cycleSettings,
   onOpenCycle,
   onOpenCalmSanctuary,
-  onOpenDressUp,
   currentTheme = 'pink',
   onOpenThemeSelector,
   isMobileOpen = false,
   onCloseMobile,
 }) => {
+  // Mobile drawer tab state: 'inbox' (show tasks first!), 'calendar', 'all'
+  const [mobileTab, setMobileTab] = useState<'inbox' | 'calendar' | 'all'>('inbox');
+
   // Mini Calendar State: viewed month
   const [viewedMonth, setViewedMonth] = useState<Date>(
     new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)
@@ -162,21 +163,61 @@ export const Sidebar: React.FC<SidebarProps> = ({
         `}
       >
         {/* Mobile Header Bar */}
-        <div className="lg:hidden flex items-center justify-between p-3.5 bg-gradient-to-r from-pink-200 via-rose-100 to-pink-200 border-b border-pink-300">
-          <span className="text-xs font-black text-pink-950 flex items-center gap-1.5">
-            <span>Barbie Planner & Tasks</span>
-            <span>💖</span>
-          </span>
-          <button
-            onClick={onCloseMobile}
-            className="p-1.5 text-pink-700 hover:text-pink-900 hover:bg-pink-200/70 rounded-lg transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
+        <div className="lg:hidden p-3 bg-gradient-to-r from-pink-200 via-rose-100 to-pink-200 border-b border-pink-300 space-y-2 shrink-0">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-black text-pink-950 flex items-center gap-1.5">
+              <span>Barbie Planner & Tasks</span>
+              <span>💖</span>
+            </span>
+            <button
+              onClick={onCloseMobile}
+              className="p-1.5 text-pink-700 hover:text-pink-900 hover:bg-pink-200/70 rounded-lg transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Quick tab switcher for mobile so users can instantly jump to Inbox! */}
+          <div className="flex items-center gap-1 bg-white/80 p-0.5 rounded-xl border border-pink-300">
+            <button
+              onClick={() => setMobileTab('inbox')}
+              className={`flex-1 py-1 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
+                mobileTab === 'inbox'
+                  ? 'bg-pink-500 text-white shadow-2xs'
+                  : 'text-pink-700 hover:bg-pink-100'
+              }`}
+            >
+              <span>🌸 Inbox</span>
+              <span className="font-mono text-[10px] px-1.5 py-0.2 rounded-full bg-white/20 text-current">
+                {tasks.filter((t) => !t.completed).length}
+              </span>
+            </button>
+            <button
+              onClick={() => setMobileTab('calendar')}
+              className={`flex-1 py-1 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
+                mobileTab === 'calendar'
+                  ? 'bg-pink-500 text-white shadow-2xs'
+                  : 'text-pink-700 hover:bg-pink-100'
+              }`}
+            >
+              <span>📅 Calendar</span>
+            </button>
+            <button
+              onClick={() => setMobileTab('all')}
+              className={`flex-1 py-1 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${
+                mobileTab === 'all'
+                  ? 'bg-pink-500 text-white shadow-2xs'
+                  : 'text-pink-700 hover:bg-pink-100'
+              }`}
+            >
+              <span>✨ All</span>
+            </button>
+          </div>
         </div>
 
-        {/* 1. Mini Month Calendar */}
-      <div className="p-4 border-b border-pink-200/70 bg-white/40">
+        {/* 1. Mini Month Calendar & Top Cards (Hidden on mobile if user selected 'inbox' tab) */}
+        <div className={mobileTab === 'inbox' ? 'hidden lg:block' : 'block'}>
+          <div className="p-4 border-b border-pink-200/70 bg-white/40">
         <div className="flex items-center justify-between mb-3">
           <span className="text-xs font-extrabold text-pink-950 tracking-wide uppercase flex items-center gap-1">
             <span>{viewedMonth.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
@@ -217,7 +258,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             const isToday = isSameDay(d, new Date());
             const isCurrentMonth = d.getMonth() === viewedMonth.getMonth();
             const hasEvents = eventDateSet.has(dateStr);
-            const cycleStatus = cycleSettings ? getDayCycleStatus(dateStr, cycleSettings) : null;
+            const cycleStatus = (cycleSettings && cycleSettings.enabled !== false) 
+              ? getDayCycleStatus(dateStr, cycleSettings) 
+              : null;
 
             return (
               <button
@@ -258,47 +301,46 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      {/* Barbie Cycle & Phase Glow Card */}
-      {cycleSettings && (
-        <div className="p-3.5 border-b border-pink-200/80 bg-gradient-to-br from-pink-50 via-rose-50/60 to-pink-100/40">
+      {/* Barbie Cycle & Phase Glow Card (Optional, can be disabled for boys) */}
+      {cycleSettings && cycleSettings.enabled !== false && (
+        <div className="p-3 border-b border-pink-200/80 bg-gradient-to-br from-pink-50 via-rose-50/60 to-pink-100/40">
           {(() => {
             const cycleInfo = getCurrentCycleInfo(currentDate, cycleSettings);
             return (
               <div>
-                <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-1.5">
                     <span className="text-sm">{cycleInfo.icon}</span>
                     <span className="text-xs font-black text-pink-950 uppercase tracking-tight">
                       Cycle Glow
                     </span>
+                    <span className="text-[10px] font-bold text-pink-700">· {cycleInfo.phaseName}</span>
                   </div>
                   <span className="text-[10px] font-bold font-mono px-2 py-0.5 rounded-full bg-pink-200/90 text-pink-800">
                     Day {cycleInfo.cycleDay}/{cycleInfo.cycleLength}
                   </span>
                 </div>
 
-                <div className="text-xs font-bold text-pink-900 mb-1 flex items-center gap-1">
-                  <span>{cycleInfo.phaseName}</span>
-                </div>
+                <div className="flex items-center justify-between gap-2 mt-1">
+                  <div className="text-[11px] text-pink-700 font-medium truncate">
+                    {cycleInfo.isPeriod ? (
+                      <span className="text-rose-700 font-bold inline-flex items-center gap-1">
+                        <span>🩸</span>
+                        <span>Period Active · Rest & Reset</span>
+                      </span>
+                    ) : (
+                      <span>Next: {cycleInfo.nextPeriodDate} ({cycleInfo.daysUntilNextPeriod}d)</span>
+                    )}
+                  </div>
 
-                <div className="text-[11px] text-pink-700 font-medium mb-2 leading-snug">
-                  {cycleInfo.isPeriod ? (
-                    <span className="text-rose-700 font-bold flex items-center gap-1">
-                      <span>🩸</span>
-                      <span>Period Active · Rest & Reset</span>
-                    </span>
-                  ) : (
-                    <span>Next Period: {cycleInfo.nextPeriodDate} ({cycleInfo.daysUntilNextPeriod}d)</span>
-                  )}
+                  <button
+                    onClick={onOpenCycle}
+                    className="shrink-0 py-1 px-2.5 bg-white/95 hover:bg-pink-100/80 border border-pink-300 rounded-lg text-[11px] font-bold text-pink-700 shadow-2xs flex items-center gap-1 transition-colors"
+                  >
+                    <Sparkles className="w-3 h-3 text-pink-500" />
+                    <span>Details</span>
+                  </button>
                 </div>
-
-                <button
-                  onClick={onOpenCycle}
-                  className="w-full py-1.5 px-2 bg-white/95 hover:bg-pink-100/80 border border-pink-300 rounded-xl text-xs font-bold text-pink-700 shadow-2xs flex items-center justify-center gap-1.5 transition-colors"
-                >
-                  <Sparkles className="w-3 h-3 text-pink-500" />
-                  <span>Phase Guidance & Tips ✨</span>
-                </button>
               </div>
             );
           })()}
@@ -328,36 +370,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             <Sparkles className="w-3 h-3 text-rose-500" />
             <span>Overload Triage & Breathing</span>
-          </button>
-        </div>
-      )}
-
-      {/* Barbie Dress-Up Doll Studio Card (Boredom Buster!) */}
-      {onOpenDressUp && (
-        <div className="p-3.5 border-b border-pink-200/80 bg-gradient-to-br from-pink-100/70 via-rose-50 to-pink-50">
-          <div className="flex items-center justify-between mb-1.5">
-            <div className="flex items-center gap-1.5">
-              <span className="text-base leading-none">👗</span>
-              <span className="text-xs font-black text-pink-950 uppercase tracking-tight">
-                Barbie Dress-Up
-              </span>
-            </div>
-            <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full bg-pink-200 text-pink-800">
-              Bored? ✨
-            </span>
-          </div>
-          <p className="text-[11px] text-pink-800 font-medium mb-2 leading-snug">
-            Need a fun break? Change Barbie's outfits, snap Polaroids, or get a cute pep-talk!
-          </p>
-          <button
-            onClick={() => {
-              if (onCloseMobile) onCloseMobile();
-              onOpenDressUp();
-            }}
-            className="w-full py-1.5 px-2 bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white rounded-xl text-xs font-extrabold shadow-2xs flex items-center justify-center gap-1.5 transition-transform active:scale-95"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Open Dressing Room 💖</span>
           </button>
         </div>
       )}
@@ -395,9 +407,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       )}
 
-      {/* 2. Calendars & Categories Filter */}
-      <div className="p-4 border-b border-pink-200/70">
-        <div className="flex items-center justify-between mb-2">
+        {/* Close top cards wrapper */}
+        </div>
+
+        {/* 2. Calendars & Categories Filter (Hidden if mobileTab is 'inbox') */}
+        <div className={`p-4 border-b border-pink-200/70 ${mobileTab === 'inbox' ? 'hidden lg:block' : 'block'}`}>
+          <div className="flex items-center justify-between mb-2">
           <span className="text-xs font-bold text-pink-900 uppercase tracking-wider flex items-center gap-1">
             <span>Time Categories</span>
             <span className="text-[10px]">🎀</span>
@@ -438,9 +453,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      {/* 3. Unscheduled Tasks / Timebox Queue */}
-      <div className="flex-1 p-4 flex flex-col min-h-0">
-        <div className="flex items-center justify-between mb-2">
+        {/* 3. Unscheduled Tasks / Timebox Queue */}
+        <div className={`flex-1 p-4 flex flex-col min-h-0 pb-24 lg:pb-4 ${mobileTab === 'calendar' ? 'hidden lg:flex' : 'flex'}`}>
+          <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-bold text-pink-900 uppercase tracking-wider flex items-center gap-1">
               <span>Inbox & Backlog</span>
@@ -570,11 +585,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </div>
                   </div>
 
-                  {/* Action buttons on hover */}
+                  {/* Action buttons (always visible on mobile touch, hover on desktop) */}
                   {!task.completed && (
-                    <div className="mt-2 pt-2 border-t border-pink-100 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="mt-2 pt-2 border-t border-pink-100 flex items-center justify-between lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
                       <button
-                        onClick={() => onScheduleTask(task)}
+                        onClick={() => {
+                          onScheduleTask(task);
+                          if (onCloseMobile) onCloseMobile();
+                        }}
                         className="text-[11px] font-bold text-pink-600 hover:text-pink-800 flex items-center gap-1"
                         title="Timebox onto calendar"
                       >

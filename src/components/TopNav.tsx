@@ -15,7 +15,8 @@ import {
   Timer,
   Bell,
   Menu,
-  Palette
+  Palette,
+  Inbox
 } from 'lucide-react';
 
 interface TopNavProps {
@@ -32,7 +33,7 @@ interface TopNavProps {
   onOpenCycle?: () => void;
   cycleInfo?: CyclePhaseInfo;
   onOpenCalmSanctuary?: () => void;
-  onOpenDressUp?: () => void;
+  onOpenInbox?: () => void;
   currentTheme?: CalendarThemeId;
   onOpenThemeSelector?: () => void;
   onToggleSidebar?: () => void;
@@ -41,6 +42,7 @@ interface TopNavProps {
   isFocusActive: boolean;
   onOpenNotifications: () => void;
   unreadNotificationCount: number;
+  pendingTaskCount?: number;
 }
 
 export const TopNav: React.FC<TopNavProps> = ({
@@ -57,7 +59,7 @@ export const TopNav: React.FC<TopNavProps> = ({
   onOpenCycle,
   cycleInfo,
   onOpenCalmSanctuary,
-  onOpenDressUp,
+  onOpenInbox,
   currentTheme = 'pink',
   onOpenThemeSelector,
   onToggleSidebar,
@@ -66,6 +68,7 @@ export const TopNav: React.FC<TopNavProps> = ({
   isFocusActive,
   onOpenNotifications,
   unreadNotificationCount,
+  pendingTaskCount = 0,
 }) => {
   // Format current date label depending on view
   const formattedDateLabel = React.useMemo(() => {
@@ -245,11 +248,11 @@ export const TopNav: React.FC<TopNavProps> = ({
           )}
         </button>
 
-        {/* Barbie Cycle & Phase Pill Button */}
+        {/* Barbie Cycle & Phase Pill Button (Hidden on mobile to save top bar space; accessible via bottom nav) */}
         {cycleInfo && onOpenCycle && (
           <button
             onClick={onOpenCycle}
-            className={`px-2 py-1.5 text-xs font-bold rounded-xl border shadow-2xs flex items-center gap-1 transition-all hover:scale-105 active:scale-95 ${
+            className={`hidden md:flex px-2 py-1.5 text-xs font-bold rounded-xl border shadow-2xs items-center gap-1 transition-all hover:scale-105 active:scale-95 ${
               cycleInfo.isPeriod
                 ? 'bg-rose-100 text-rose-800 border-rose-300'
                 : 'bg-pink-100 text-pink-800 border-pink-300'
@@ -257,7 +260,7 @@ export const TopNav: React.FC<TopNavProps> = ({
             title={`Cycle Day ${cycleInfo.cycleDay}: ${cycleInfo.phaseName}`}
           >
             <span>{cycleInfo.icon}</span>
-            <span className="hidden sm:inline">Day {cycleInfo.cycleDay}</span>
+            <span>Day {cycleInfo.cycleDay}</span>
           </button>
         )}
 
@@ -273,16 +276,20 @@ export const TopNav: React.FC<TopNavProps> = ({
           </button>
         )}
 
-        {/* Barbie Dress-Up Studio (Boredom Buster!) */}
-        {onOpenDressUp && (
+        {/* Task Inbox Button (Easy access from top navigation!) */}
+        {onOpenInbox && (
           <button
-            onClick={onOpenDressUp}
-            className="px-2 sm:px-2.5 py-1.5 text-xs font-extrabold rounded-xl border border-pink-400 bg-gradient-to-r from-pink-100 via-rose-50 to-pink-100 hover:from-pink-200 hover:to-rose-100 text-pink-900 shadow-2xs flex items-center gap-1.5 transition-all hover:scale-105 active:scale-95"
-            title="Bored? Dress Up Barbie! Change Outfits & Styles (Press B)"
+            onClick={onOpenInbox}
+            className="relative px-2 sm:px-2.5 py-1.5 text-xs font-extrabold rounded-xl border border-pink-300 bg-white hover:bg-pink-50 text-pink-900 shadow-2xs flex items-center gap-1.5 transition-all hover:scale-105 active:scale-95"
+            title="Open Task Inbox & Backlog (Press I)"
           >
-            <span className="text-sm">👗</span>
-            <span className="hidden sm:inline">Dress Up</span>
-            <span className="text-[10px] text-pink-600 font-black hidden lg:inline">✨</span>
+            <Inbox className="w-3.5 h-3.5 text-pink-600" />
+            <span className="hidden sm:inline">Inbox</span>
+            {pendingTaskCount > 0 && (
+              <span className="font-mono text-[9px] px-1.5 py-0.2 rounded-full bg-pink-500 text-white font-bold">
+                {pendingTaskCount > 9 ? '9+' : pendingTaskCount}
+              </span>
+            )}
           </button>
         )}
 

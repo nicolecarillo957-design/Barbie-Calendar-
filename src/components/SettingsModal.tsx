@@ -24,6 +24,8 @@ interface SettingsModalProps {
   onImportJson: (data: { events: CalendarEvent[]; tasks: UnscheduledTask[] }) => void;
   currentTheme?: CalendarThemeId;
   onSelectTheme?: (theme: CalendarThemeId) => void;
+  isCycleTrackingEnabled?: boolean;
+  onToggleCycleTracking?: (enabled: boolean) => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -35,6 +37,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onImportJson,
   currentTheme = 'pink',
   onSelectTheme,
+  isCycleTrackingEnabled = true,
+  onToggleCycleTracking,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -163,6 +167,59 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </button>
                   );
                 })}
+              </div>
+            </div>
+          )}
+
+          {/* Section 0.5: Menstruation & Period Tracking (Optional / Boys Mode) */}
+          {onToggleCycleTracking && (
+            <div className="p-4 bg-pink-50/70 border border-pink-200 rounded-2xl">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="w-8 h-8 rounded-full bg-white text-rose-600 flex items-center justify-center border border-pink-300 shadow-2xs text-base">
+                    🩸
+                  </span>
+                  <div>
+                    <h4 className="text-xs font-black uppercase tracking-wider text-pink-950 flex items-center gap-1.5">
+                      <span>Menstruation & Cycle Glow Tracking</span>
+                    </h4>
+                    <p className="text-[11px] text-pink-700 font-medium">
+                      Optional feature. If boys or anyone who doesn't experience menstruation is using the app, you can turn this completely OFF to hide all period indicators, cycle pills, and notifications.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !isCycleTrackingEnabled;
+                    onToggleCycleTracking(next);
+                    if (next) {
+                      cuteSound.playSparkle();
+                    } else {
+                      cuteSound.playCutePop();
+                    }
+                  }}
+                  className={`w-12 h-6 rounded-full transition-colors relative flex items-center px-0.5 shrink-0 ml-3 ${
+                    isCycleTrackingEnabled ? 'bg-pink-500' : 'bg-slate-300'
+                  }`}
+                  title={isCycleTrackingEnabled ? 'Turn OFF Menstruation tracking' : 'Turn ON Menstruation tracking'}
+                >
+                  <div
+                    className={`w-5 h-5 rounded-full bg-white shadow-xs transition-transform transform ${
+                      isCycleTrackingEnabled ? 'translate-x-6' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <div className="mt-2.5 pt-2 border-t border-pink-200/60 flex items-center justify-between text-[11px]">
+                <span className="font-bold text-pink-900">
+                  Status: {isCycleTrackingEnabled ? '🌸 Active (Period & Cycle features visible)' : '✨ Off (Hidden from calendar, sidebar & nav)'}
+                </span>
+                <span className="text-[10px] text-pink-600 font-semibold">
+                  {isCycleTrackingEnabled ? 'Enabled' : 'Disabled'}
+                </span>
               </div>
             </div>
           )}

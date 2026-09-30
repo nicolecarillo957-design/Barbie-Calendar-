@@ -124,10 +124,11 @@ export const WeekView: React.FC<WeekViewProps> = ({
                 </span>
                 {cycleStatus?.isPeriod && (
                   <span
-                    className="text-[9px] px-1 py-0.2 rounded-full font-bold bg-rose-200/90 text-rose-800 border border-rose-300 shadow-2xs"
+                    className="text-[9px] px-1 py-0.2 rounded-full font-bold bg-rose-200/90 text-rose-800 border border-rose-300 shadow-2xs inline-flex items-center gap-0.5"
                     title={`Period Day ${cycleStatus.cycleDay} 🩸`}
                   >
-                    🩸 Day {cycleStatus.cycleDay}
+                    <span>🩸</span>
+                    <span className="hidden sm:inline">D{cycleStatus.cycleDay}</span>
                   </span>
                 )}
                 {cycleStatus?.isOvulation && (
