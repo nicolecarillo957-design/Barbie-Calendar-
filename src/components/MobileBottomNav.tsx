@@ -20,6 +20,8 @@ interface MobileBottomNavProps {
   isPeriod?: boolean;
   isCycleEnabled?: boolean;
   pendingTaskCount?: number;
+  streakDays?: number;
+  onOpenTeacherMonitor?: () => void;
 }
 
 export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
@@ -34,6 +36,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   isPeriod,
   isCycleEnabled = true,
   pendingTaskCount = 0,
+  streakDays,
+  onOpenTeacherMonitor,
 }) => {
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-white/95 backdrop-blur-md border-t border-pink-200 z-40 flex items-center justify-around px-1 shadow-lg safe-bottom">
@@ -86,7 +90,21 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
         <span className="text-[9px] mt-0.5 font-bold text-pink-600">Inbox</span>
       </button>
 
-      {/* 5. De-Stress SOS */}
+      {/* 5. Streak & Teacher Verification */}
+      {onOpenTeacherMonitor && (
+        <button
+          onClick={onOpenTeacherMonitor}
+          className="flex flex-col items-center justify-center flex-1 py-1 text-amber-600 hover:text-amber-800 transition-colors"
+          title="Student Streak & Teacher Verification"
+        >
+          <span className="text-base leading-none">🔥</span>
+          <span className="text-[9px] mt-0.5 font-black text-amber-700">
+            {streakDays !== undefined ? `${streakDays}d` : 'Streak'}
+          </span>
+        </button>
+      )}
+
+      {/* 6. De-Stress SOS */}
       <button
         onClick={onOpenCalmSanctuary}
         className="flex flex-col items-center justify-center flex-1 py-1 text-rose-500 hover:text-rose-700 transition-colors"

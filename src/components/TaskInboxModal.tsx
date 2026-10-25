@@ -256,6 +256,17 @@ export const TaskInboxModal: React.FC<TaskInboxModalProps> = ({
                           <Clock className="w-3 h-3 text-pink-500" />
                           {task.estimatedMinutes}m
                         </span>
+
+                        {task.evidence ? (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-md bg-emerald-100 text-emerald-800 font-bold border border-emerald-300 text-[10px]">
+                            <span>📸 Photo Proof</span>
+                            <span>+{task.evidence.pointsEarned} pts</span>
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-amber-600 font-bold">
+                            🔥 +{task.pointsValue || 5} pts
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>

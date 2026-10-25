@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { CalendarEvent, UnscheduledTask } from '../types/calendar';
 import { downloadFile, exportToIcs } from '../utils/dateUtils';
 import { 
@@ -26,6 +26,9 @@ interface SettingsModalProps {
   onSelectTheme?: (theme: CalendarThemeId) => void;
   isCycleTrackingEnabled?: boolean;
   onToggleCycleTracking?: (enabled: boolean) => void;
+  studentName?: string;
+  onUpdateStudentName?: (name: string) => void;
+  onOpenTeacherMonitor?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -39,8 +42,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSelectTheme,
   isCycleTrackingEnabled = true,
   onToggleCycleTracking,
+  studentName = 'Student',
+  onUpdateStudentName,
+  onOpenTeacherMonitor,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [localStudentName, setLocalStudentName] = useState(studentName);
 
   if (!isOpen) return null;
 
@@ -170,6 +177,60 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
           )}
+
+          {/* Section 0.2: Student Profile & Teacher Monitoring */}
+          <div className="p-4 bg-gradient-to-br from-amber-50/60 to-pink-50/70 border border-amber-200/80 rounded-2xl">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <span className="w-8 h-8 rounded-full bg-white text-amber-600 flex items-center justify-center border border-amber-300 shadow-2xs text-base">
+                  🎓
+                </span>
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-pink-950 flex items-center gap-1.5">
+                    <span>Student Profile & Teacher Monitoring</span>
+                  </h4>
+                  <p className="text-[11px] text-pink-700 font-medium">
+                    Set your student name so your teacher knows whose study streaks and photo evidence they are reviewing.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 mt-3">
+              <input
+                type="text"
+                value={localStudentName}
+                onChange={(e) => setLocalStudentName(e.target.value)}
+                placeholder="Enter Student Name (e.g., Nicole C.)"
+                className="flex-1 text-xs px-3 py-2 bg-white border border-pink-200 rounded-xl text-pink-950 focus:outline-none focus:ring-1 focus:ring-pink-400 font-bold"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (onUpdateStudentName && localStudentName.trim()) {
+                    onUpdateStudentName(localStudentName.trim());
+                    cuteSound.playSparkle();
+                  }
+                }}
+                className="px-3 py-2 bg-pink-500 hover:bg-pink-600 text-white font-bold text-xs rounded-xl shadow-2xs transition-colors shrink-0"
+              >
+                Save Name 💖
+              </button>
+            </div>
+
+            {onOpenTeacherMonitor && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenTeacherMonitor();
+                }}
+                className="mt-3 w-full py-2 bg-white hover:bg-amber-50 border border-amber-300 rounded-xl text-xs font-bold text-amber-900 shadow-2xs flex items-center justify-center gap-2 transition-colors"
+              >
+                <span>👩‍🏫 Open Teacher Monitoring Dashboard</span>
+              </button>
+            )}
+          </div>
 
           {/* Section 0.5: Menstruation & Period Tracking (Optional / Boys Mode) */}
           {onToggleCycleTracking && (

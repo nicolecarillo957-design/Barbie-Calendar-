@@ -340,6 +340,19 @@ export const DayView: React.FC<DayViewProps> = ({
                         {formatFriendlyTime(ev.startTime)} - {formatFriendlyTime(ev.endTime)}
                       </span>
 
+                      {ev.evidence ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-800 font-bold border border-emerald-300 shadow-2xs font-sans text-[11px]">
+                          <span>📸 Photo Stamped:</span>
+                          <span className="font-mono">{ev.evidence.completedTimeFormatted.split(' at ')[1] || ev.evidence.completedTimeFormatted}</span>
+                          <span className="bg-emerald-200 px-1 py-0.2 rounded font-black text-emerald-950">+{ev.evidence.pointsEarned} pts 🔥</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200 font-sans">
+                          <span>🔥 +10 pts</span>
+                          <span className="text-[10px] text-amber-600 font-normal hidden sm:inline">(Photo proof required)</span>
+                        </span>
+                      )}
+
                       {ev.location && (
                         <span className="flex items-center gap-1 font-sans text-pink-800 truncate">
                           <MapPin className="w-3 h-3 opacity-70 shrink-0 text-pink-600" />

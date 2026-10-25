@@ -313,14 +313,26 @@ export const WeekView: React.FC<WeekViewProps> = ({
                       </div>
                     </div>
 
-                    {/* Footer tags / subtasks / location if tall enough */}
-                    {heightPx > 46 && (
+                    {/* Footer tags / subtasks / location / photo proof if tall enough */}
+                    {heightPx > 42 && (
                       <div className="flex items-center justify-between text-[10px] text-pink-700 mt-1">
-                        {ev.location && (
+                        {ev.evidence ? (
+                          <div 
+                            className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-md bg-emerald-100 text-emerald-800 font-bold border border-emerald-300 shadow-2xs text-[9px]"
+                            title={`Photo evidence verified: ${ev.evidence.completedTimeFormatted} (+${ev.evidence.pointsEarned} pts)`}
+                          >
+                            <span>📸</span>
+                            <span>+{ev.evidence.pointsEarned}p</span>
+                          </div>
+                        ) : ev.location ? (
                           <div className="flex items-center gap-1 truncate max-w-[80%]">
                             <MapPin className="w-2.5 h-2.5 shrink-0 opacity-70" />
                             <span className="truncate">{ev.location}</span>
                           </div>
+                        ) : (
+                          <span className="text-[9px] text-pink-500 font-mono font-bold">
+                            +10 pts 🔥
+                          </span>
                         )}
                         {ev.subtasks && ev.subtasks.length > 0 && (
                           <span className="ml-auto text-[10px] font-mono text-pink-600 font-bold">

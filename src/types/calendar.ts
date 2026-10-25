@@ -33,6 +33,26 @@ export interface AppNotification {
   cyclePhase?: CyclePhase;
 }
 
+export interface TaskEvidence {
+  id: string;
+  photoUrl: string; // Base64 data URL or uploaded photo
+  completedAt: string; // ISO string with exact timestamp
+  completedTimeFormatted: string; // e.g. "04:32 PM, Oct 25"
+  notes?: string;
+  pointsEarned: number; // 5 or 10 points
+  studentName?: string;
+  teacherVerified?: boolean;
+  teacherFeedback?: string;
+}
+
+export interface StudentStreakData {
+  currentStreak: number;
+  bestStreak: number;
+  totalPoints: number;
+  lastActiveDate?: string; // YYYY-MM-DD
+  historyDates: string[]; // dates on which tasks were completed with evidence
+}
+
 export interface CalendarEvent {
   id: string;
   title: string;
@@ -50,6 +70,8 @@ export interface CalendarEvent {
   recurrence?: 'none' | 'daily' | 'weekdays' | 'weekly';
   sourceTaskId?: string;
   reminders?: ReminderSetting[];
+  evidence?: TaskEvidence;
+  pointsValue?: number; // 5 or 10 points (defaults to 10 for deep work/planning, 5 for others)
 }
 
 export interface UnscheduledTask {
@@ -63,6 +85,8 @@ export interface UnscheduledTask {
   description?: string;
   reminderMinutesBefore?: number;
   reminderTime?: string; // HH:mm or ISO
+  evidence?: TaskEvidence;
+  pointsValue?: number;
 }
 
 export interface CategoryConfig {
@@ -77,7 +101,7 @@ export interface CategoryConfig {
   description: string;
 }
 
-export type CalendarViewType = 'day' | 'week' | 'month' | 'audit';
+export type CalendarViewType = 'day' | 'week' | 'month' | 'insights' | 'audit';
 
 export interface FocusSessionState {
   isActive: boolean;

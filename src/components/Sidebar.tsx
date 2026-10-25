@@ -3,7 +3,9 @@ import {
   CalendarEvent, 
   CycleSettings,
   EventCategory, 
-  UnscheduledTask 
+  UnscheduledTask,
+  StudentStreakData,
+  CalendarViewType
 } from '../types/calendar';
 import { CalendarThemeId, THEME_CONFIGS } from '../types/theme';
 import { 
@@ -31,7 +33,11 @@ import {
   Sparkles,
   Bell,
   Heart,
-  X
+  X,
+  Flame,
+  Award,
+  GraduationCap,
+  BarChart3
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -55,6 +61,10 @@ interface SidebarProps {
   onOpenThemeSelector?: () => void;
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
+  streakData?: StudentStreakData;
+  onOpenTeacherMonitor?: () => void;
+  studentName?: string;
+  onSelectView?: (view: CalendarViewType) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -77,6 +87,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenThemeSelector,
   isMobileOpen = false,
   onCloseMobile,
+  streakData,
+  onOpenTeacherMonitor,
+  studentName = 'Student',
+  onSelectView,
 }) => {
   // Mobile drawer tab state: 'inbox' (show tasks first!), 'calendar', 'all'
   const [mobileTab, setMobileTab] = useState<'inbox' | 'calendar' | 'all'>('inbox');
@@ -301,7 +315,53 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      {/* Barbie Cycle & Phase Glow Card (Optional, can be disabled for boys) */}
+      {/* Student Study Streak & Teacher Verification Card */}
+      {streakData && (
+        <div className="p-3 border-b border-pink-200/80 bg-gradient-to-br from-amber-50/70 via-pink-50 to-orange-50/50">
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center gap-1.5">
+              <span className="text-base leading-none animate-bounce">🔥</span>
+              <span className="text-xs font-black text-amber-950 uppercase tracking-tight">
+                Study Streak: {streakData.currentStreak} Days
+              </span>
+            </div>
+            <span className="text-[10px] font-extrabold font-mono px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
+              {streakData.totalPoints} pts 🏆
+            </span>
+          </div>
+
+          <p className="text-[11px] text-amber-900/80 font-medium leading-snug mb-2">
+            Finish calendar tasks with a picture proof to earn 5-10 points and light up your streak!
+          </p>
+
+          <div className="grid grid-cols-2 gap-1.5">
+            <button
+              onClick={() => {
+                if (onCloseMobile) onCloseMobile();
+                if (onOpenTeacherMonitor) onOpenTeacherMonitor();
+              }}
+              className="py-1.5 px-2 bg-white/95 hover:bg-amber-100/60 border border-amber-300 rounded-xl text-[11px] font-extrabold text-amber-900 shadow-2xs flex items-center justify-center gap-1 transition-colors"
+              title="Open Teacher Review Modal"
+            >
+              <GraduationCap className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+              <span>Teacher 👩‍🏫</span>
+            </button>
+            {onSelectView && (
+              <button
+                onClick={() => {
+                  if (onCloseMobile) onCloseMobile();
+                  onSelectView('insights');
+                }}
+                className="py-1.5 px-2 bg-pink-500 hover:bg-pink-600 text-white rounded-xl text-[11px] font-extrabold shadow-2xs flex items-center justify-center gap-1 transition-colors"
+                title="View Weekly Insights Bar Chart & Trends"
+              >
+                <BarChart3 className="w-3.5 h-3.5 shrink-0" />
+                <span>Insights 📊</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       {cycleSettings && cycleSettings.enabled !== false && (
         <div className="p-3 border-b border-pink-200/80 bg-gradient-to-br from-pink-50 via-rose-50/60 to-pink-100/40">
           {(() => {

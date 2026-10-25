@@ -11,7 +11,9 @@ import {
   CalendarViewType, 
   CycleSettings,
   EventCategory, 
-  UnscheduledTask 
+  UnscheduledTask,
+  TaskEvidence,
+  StudentStreakData
 } from './types/calendar';
 import { CATEGORY_LIST } from './utils/categories';
 import { cuteSound } from './utils/cuteSound';
@@ -23,6 +25,13 @@ import {
 } from './utils/dateUtils';
 import { DEFAULT_CYCLE_SETTINGS, getCurrentCycleInfo, getCycleMorningMessage } from './utils/cycleUtils';
 import { INITIAL_EVENTS, INITIAL_TASKS } from './utils/seedData';
+import { 
+  DEFAULT_STREAK_DATA, 
+  STREAK_STORAGE_KEY, 
+  STUDENT_NAME_STORAGE_KEY, 
+  TEACHER_MODE_STORAGE_KEY, 
+  calculateUpdatedStreak 
+} from './utils/streakUtils';
 import { TopNav } from './components/TopNav';
 import { Sidebar } from './components/Sidebar';
 import { WeekView } from './components/WeekView';
@@ -40,6 +49,9 @@ import { CalmSanctuaryModal } from './components/CalmSanctuaryModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { TaskInboxModal } from './components/TaskInboxModal';
 import { ThemeSelectorModal } from './components/ThemeSelectorModal';
+import { TaskEvidenceModal } from './components/TaskEvidenceModal';
+import { TeacherMonitorModal } from './components/TeacherMonitorModal';
+import { WeeklyInsightsView } from './components/WeeklyInsightsView';
 import { CalendarThemeId, THEME_CONFIGS } from './types/theme';
 
 const EVENTS_STORAGE_KEY = 'barbie_calendar_events_user_v1';
@@ -185,10 +197,57 @@ export default function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isCycleModalOpen, setIsCycleModalOpen] = useState(false);
-const [showCycleTracking, setShowCycleTracking] = useState(true);
   const [isCalmModalOpen, setIsCalmModalOpen] = useState(false);
   const [isTaskInboxOpen, setIsTaskInboxOpen] = useState(false);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
+  const [isTeacherMonitorOpen, setIsTeacherMonitorOpen] = useState(false);
+  const [isEvidenceModalOpen, setIsEvidenceModalOpen] = useState(false);
+  const [evidenceTarget, setEvidenceTarget] = useState<{
+    type: 'event' | 'task';
+    id: string;
+    title: string;
+    category?: string;
+    pointsValue?: number;
+    existingEvidence?: TaskEvidence;
+  } | null>(null);
+
+  // Student Name State (Default to user name or 'Nicole C.')
+  const [studentName, setStudentName] = useState<string>(() => {
+    try {
+      const stored = localStorage.getItem(STUDENT_NAME_STORAGE_KEY);
+      if (stored) return stored;
+    } catch (e) {
+      console.error(e);
+    }
+    return 'Nicole C.';
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STUDENT_NAME_STORAGE_KEY, studentName);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [studentName]);
+
+  // Student Study Streak & Points State
+  const [streakData, setStreakData] = useState<StudentStreakData>(() => {
+    try {
+      const stored = localStorage.getItem(STREAK_STORAGE_KEY);
+      if (stored) return JSON.parse(stored);
+    } catch (e) {
+      console.error(e);
+    }
+    return DEFAULT_STREAK_DATA;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STREAK_STORAGE_KEY, JSON.stringify(streakData));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [streakData]);
 
   // 9. Calendar Color Theme State
   const [currentTheme, setCurrentTheme] = useState<CalendarThemeId>(() => {
@@ -491,23 +550,99 @@ const [showCycleTracking, setShowCycleTracking] = useState(true);
   }, []);
 
   const handleToggleComplete = useCallback((eventId: string) => {
-    setEvents((prev) =>
-      prev.map((e) => {
-        if (e.id === eventId) {
-          const willBeCompleted = !e.isCompleted;
-          if (willBeCompleted) {
-            confetti({
-              particleCount: 50,
-              spread: 55,
-              origin: { y: 0.8 },
-              colors: ['#f472b6', '#ec4899', '#db2777', '#a855f7'],
-            });
-            cuteSound.playCuteChime();
+    const target = events.find((e) => e.id === eventId);
+    if (!target) return;
+
+    if (target.isCompleted) {
+      // Uncheck task: simply toggle off
+      setEvents((prev) =>
+        prev.map((e) => (e.id === eventId ? { ...e, isCompleted: false } : e))
+      );
+      cuteSound.playCutePop();
+    } else {
+      // Completing task: Open Picture Evidence modal so student attaches photo proof, recorded time, and earns streak!
+      setEvidenceTarget({
+        type: 'event',
+        id: target.id,
+        title: target.title,
+        category: target.category,
+        pointsValue: target.pointsValue || (target.category === 'deep_work' || target.category === 'planning' ? 10 : 5),
+        existingEvidence: target.evidence,
+      });
+      setIsEvidenceModalOpen(true);
+      cuteSound.playSparkle();
+    }
+  }, [events]);
+
+  const handleConfirmCompletionWithEvidence = useCallback((evidence: TaskEvidence) => {
+    if (!evidenceTarget) return;
+
+    const points = evidence.pointsEarned;
+    const completedDate = formatDateKey(currentDate);
+
+    if (evidenceTarget.type === 'event') {
+      setEvents((prev) =>
+        prev.map((e) => {
+          if (e.id === evidenceTarget.id) {
+            return {
+              ...e,
+              isCompleted: true,
+              evidence,
+              pointsValue: points,
+            };
           }
-          return { ...e, isCompleted: willBeCompleted };
-        }
-        return e;
-      })
+          return e;
+        })
+      );
+    } else {
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id === evidenceTarget.id) {
+            return {
+              ...t,
+              completed: true,
+              evidence,
+              pointsValue: points,
+            };
+          }
+          return t;
+        })
+      );
+    }
+
+    // Update streak and points!
+    setStreakData((prev) => {
+      const updated = calculateUpdatedStreak(prev, completedDate, points);
+      return updated;
+    });
+
+    // Confetti and fanfare celebration!
+    confetti({
+      particleCount: 75,
+      spread: 70,
+      origin: { y: 0.7 },
+      colors: ['#f472b6', '#ec4899', '#db2777', '#f59e0b', '#10b981'],
+    });
+    cuteSound.playCelebrationFanfare();
+
+    triggerNotification({
+      title: `Task Verified! +${points} Points & Streak Burning! 🔥`,
+      message: `Picture proof stamped at ${evidence.completedTimeFormatted.split(' at ')[1] || 'now'}. Teacher can review anytime! 💖`,
+      type: 'celebration',
+    });
+
+    setEvidenceTarget(null);
+  }, [evidenceTarget, currentDate]);
+
+  const handleUpdateEventEvidence = useCallback((eventId: string, updatedEvidence: TaskEvidence) => {
+    setEvents((prev) =>
+      prev.map((e) => (e.id === eventId ? { ...e, evidence: updatedEvidence } : e))
+    );
+  }, []);
+
+  const handleUpdateTaskEvidence = useCallback((taskId: string, updatedEvidence: TaskEvidence) => {
+    setTasks((prev) =>
+      prev.map((t) => (t.id === taskId ? { ...t, evidence: updatedEvidence } : t))
     );
   }, []);
 
@@ -534,10 +669,27 @@ const [showCycleTracking, setShowCycleTracking] = useState(true);
   }, []);
 
   const handleToggleTaskComplete = useCallback((taskId: string) => {
-    setTasks((prev) =>
-      prev.map((t) => (t.id === taskId ? { ...t, completed: !t.completed } : t))
-    );
-  }, []);
+    const target = tasks.find((t) => t.id === taskId);
+    if (!target) return;
+
+    if (target.completed) {
+      setTasks((prev) =>
+        prev.map((t) => (t.id === taskId ? { ...t, completed: false } : t))
+      );
+      cuteSound.playCutePop();
+    } else {
+      setEvidenceTarget({
+        type: 'task',
+        id: target.id,
+        title: target.title,
+        category: target.category,
+        pointsValue: target.pointsValue || 5,
+        existingEvidence: target.evidence,
+      });
+      setIsEvidenceModalOpen(true);
+      cuteSound.playSparkle();
+    }
+  }, [tasks]);
 
   const handleDeleteTask = useCallback((taskId: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
@@ -664,6 +816,9 @@ const [showCycleTracking, setShowCycleTracking] = useState(true);
         case 'a':
           setCurrentView('audit');
           break;
+        case 'v':
+          setCurrentView('insights');
+          break;
         case 'c':
           e.preventDefault();
           if (isCycleTrackingEnabled) {
@@ -769,6 +924,9 @@ const [showCycleTracking, setShowCycleTracking] = useState(true);
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         isFocusActive={isFocusModalOpen}
+        streakDays={streakData.currentStreak}
+        totalPoints={streakData.totalPoints}
+        onOpenTeacherMonitor={() => setIsTeacherMonitorOpen(true)}
       />
 
       {/* 2. Main Workspace Layout */}
@@ -799,6 +957,10 @@ const [showCycleTracking, setShowCycleTracking] = useState(true);
             onOpenThemeSelector={() => setIsThemeModalOpen(true)}
             isMobileOpen={isMobileSidebarOpen}
             onCloseMobile={() => setIsMobileSidebarOpen(false)}
+            streakData={streakData}
+            onOpenTeacherMonitor={() => setIsTeacherMonitorOpen(true)}
+            studentName={studentName}
+            onSelectView={setCurrentView}
           />
         )}
 
@@ -848,6 +1010,19 @@ const [showCycleTracking, setShowCycleTracking] = useState(true);
                 setCurrentView('day');
               }}
               cycleSettings={cycleSettings}
+            />
+          )}
+
+          {currentView === 'insights' && (
+            <WeeklyInsightsView
+              currentDate={currentDate}
+              events={searchedEvents}
+              tasks={tasks}
+              streakData={streakData}
+              studentName={studentName}
+              onOpenTeacherMonitor={() => setIsTeacherMonitorOpen(true)}
+              onUpdateEventEvidence={handleUpdateEventEvidence}
+              onUpdateTaskEvidence={handleUpdateTaskEvidence}
             />
           )}
 
@@ -930,6 +1105,9 @@ const [showCycleTracking, setShowCycleTracking] = useState(true);
             enabled,
           }));
         }}
+        studentName={studentName}
+        onUpdateStudentName={setStudentName}
+        onOpenTeacherMonitor={() => setIsTeacherMonitorOpen(true)}
       />
 
       {/* Calendar Color Theme Selector Modal */}
@@ -1013,6 +1191,33 @@ const [showCycleTracking, setShowCycleTracking] = useState(true);
         isPeriod={currentCycleInfo?.isPeriod}
         isCycleEnabled={isCycleTrackingEnabled}
         pendingTaskCount={tasks.filter((t) => !t.completed).length}
+        streakDays={streakData.currentStreak}
+        onOpenTeacherMonitor={() => setIsTeacherMonitorOpen(true)}
+      />
+
+      {/* 7. Student Task Completion & Picture Evidence Modal */}
+      <TaskEvidenceModal
+        isOpen={isEvidenceModalOpen}
+        onClose={() => {
+          setIsEvidenceModalOpen(false);
+          setEvidenceTarget(null);
+        }}
+        targetItem={evidenceTarget}
+        studentName={studentName}
+        onConfirmCompletionWithEvidence={handleConfirmCompletionWithEvidence}
+      />
+
+      {/* 8. Teacher Monitoring & Evidence Review Dashboard Modal */}
+      <TeacherMonitorModal
+        isOpen={isTeacherMonitorOpen}
+        onClose={() => setIsTeacherMonitorOpen(false)}
+        events={events}
+        tasks={tasks}
+        streakData={streakData}
+        studentName={studentName}
+        onUpdateEventEvidence={handleUpdateEventEvidence}
+        onUpdateTaskEvidence={handleUpdateTaskEvidence}
+        onOpenWeeklyInsights={() => setCurrentView('insights')}
       />
     </div>
   );

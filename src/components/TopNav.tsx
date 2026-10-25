@@ -16,7 +16,8 @@ import {
   Bell,
   Menu,
   Palette,
-  Inbox
+  Inbox,
+  BarChart3
 } from 'lucide-react';
 
 interface TopNavProps {
@@ -43,6 +44,11 @@ interface TopNavProps {
   onOpenNotifications: () => void;
   unreadNotificationCount: number;
   pendingTaskCount?: number;
+  streakDays?: number;
+  totalPoints?: number;
+  onOpenTeacherMonitor?: () => void;
+  isTeacherMode?: boolean;
+  onToggleTeacherMode?: () => void;
 }
 
 export const TopNav: React.FC<TopNavProps> = ({
@@ -69,6 +75,11 @@ export const TopNav: React.FC<TopNavProps> = ({
   onOpenNotifications,
   unreadNotificationCount,
   pendingTaskCount = 0,
+  streakDays,
+  totalPoints,
+  onOpenTeacherMonitor,
+  isTeacherMode,
+  onToggleTeacherMode,
 }) => {
   // Format current date label depending on view
   const formattedDateLabel = React.useMemo(() => {
@@ -172,6 +183,18 @@ export const TopNav: React.FC<TopNavProps> = ({
           Month
         </button>
         <button
+          onClick={() => onViewChange('insights')}
+          className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
+            currentView === 'insights'
+              ? 'bg-pink-500 text-white shadow-xs'
+              : 'text-pink-700 hover:text-pink-950 hover:bg-pink-200/40'
+          }`}
+          title="Weekly Insights & Teacher Productivity Trends"
+        >
+          <BarChart3 className="w-3.5 h-3.5" />
+          <span>Insights</span>
+        </button>
+        <button
           onClick={() => onViewChange('audit')}
           className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
             currentView === 'audit'
@@ -214,6 +237,39 @@ export const TopNav: React.FC<TopNavProps> = ({
         >
           <SlidersHorizontal className="w-4 h-4" />
         </button>
+
+        {/* Streak & Points Badges */}
+        {streakDays !== undefined && (
+          <button
+            onClick={onOpenTeacherMonitor}
+            className="px-2 sm:px-2.5 py-1 sm:py-1.5 text-xs font-black rounded-xl border border-amber-300 bg-amber-50/90 hover:bg-amber-100/90 text-amber-900 shadow-2xs flex items-center gap-1.5 transition-all hover:scale-105 active:scale-95"
+            title={`Your Study Streak: ${streakDays} days! Finish tasks with photo proof to keep it burning! Click for details.`}
+          >
+            <span className="text-sm leading-none animate-bounce">🔥</span>
+            <span className="font-mono font-black">{streakDays}d</span>
+            {totalPoints !== undefined && (
+              <span className="hidden sm:inline-flex items-center text-[10px] font-bold text-amber-700 bg-white/80 px-1.5 py-0.5 rounded-full border border-amber-200">
+                {totalPoints} pts
+              </span>
+            )}
+          </button>
+        )}
+
+        {/* Teacher Mode & Monitoring Pill */}
+        {onOpenTeacherMonitor && (
+          <button
+            onClick={onOpenTeacherMonitor}
+            className={`px-2 sm:px-2.5 py-1 sm:py-1.5 text-xs font-extrabold rounded-xl border shadow-2xs flex items-center gap-1.5 transition-all hover:scale-105 active:scale-95 ${
+              isTeacherMode
+                ? 'bg-purple-600 text-white border-purple-700 shadow-md animate-pulse'
+                : 'bg-white hover:bg-pink-50 text-pink-900 border-pink-300'
+            }`}
+            title="Teacher Monitoring: View submitted picture proofs and finish timestamps"
+          >
+            <span className="text-sm leading-none">👩‍🏫</span>
+            <span className="hidden sm:inline">Teacher Monitor</span>
+          </button>
+        )}
 
         {/* Color Theme Selector Pill */}
         {onOpenThemeSelector && (
