@@ -5,11 +5,11 @@ export const STUDENT_NAME_STORAGE_KEY = 'student_name_v1';
 export const TEACHER_MODE_STORAGE_KEY = 'teacher_monitoring_mode_v1';
 
 export const DEFAULT_STREAK_DATA: StudentStreakData = {
-  currentStreak: 3,
-  bestStreak: 5,
-  totalPoints: 45,
-  lastActiveDate: '2026-10-24',
-  historyDates: ['2026-10-22', '2026-10-23', '2026-10-24'],
+  currentStreak: 0,
+  bestStreak: 0,
+  totalPoints: 0,
+  lastActiveDate: undefined,
+  historyDates: [],
 };
 
 /**

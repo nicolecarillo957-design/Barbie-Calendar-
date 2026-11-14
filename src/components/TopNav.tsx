@@ -1,7 +1,6 @@
 import React from 'react';
 import { 
-  CalendarViewType, 
-  CyclePhaseInfo
+  CalendarViewType
 } from '../types/calendar';
 import { CalendarThemeId, THEME_CONFIGS } from '../types/theme';
 import { 
@@ -17,7 +16,8 @@ import {
   Menu,
   Palette,
   Inbox,
-  BarChart3
+  BarChart3,
+  LogOut
 } from 'lucide-react';
 
 interface TopNavProps {
@@ -31,8 +31,6 @@ interface TopNavProps {
   onOpenFocus: () => void;
   onOpenShortcuts: () => void;
   onOpenSettings: () => void;
-  onOpenCycle?: () => void;
-  cycleInfo?: CyclePhaseInfo;
   onOpenCalmSanctuary?: () => void;
   onOpenInbox?: () => void;
   currentTheme?: CalendarThemeId;
@@ -49,6 +47,10 @@ interface TopNavProps {
   onOpenTeacherMonitor?: () => void;
   isTeacherMode?: boolean;
   onToggleTeacherMode?: () => void;
+  userEmail?: string;
+  userName?: string;
+  userPhotoUrl?: string;
+  onSignOut?: () => void;
 }
 
 export const TopNav: React.FC<TopNavProps> = ({
@@ -62,8 +64,6 @@ export const TopNav: React.FC<TopNavProps> = ({
   onOpenFocus,
   onOpenShortcuts,
   onOpenSettings,
-  onOpenCycle,
-  cycleInfo,
   onOpenCalmSanctuary,
   onOpenInbox,
   currentTheme = 'pink',
@@ -80,6 +80,10 @@ export const TopNav: React.FC<TopNavProps> = ({
   onOpenTeacherMonitor,
   isTeacherMode,
   onToggleTeacherMode,
+  userEmail,
+  userName,
+  userPhotoUrl,
+  onSignOut,
 }) => {
   // Format current date label depending on view
   const formattedDateLabel = React.useMemo(() => {
@@ -109,11 +113,13 @@ export const TopNav: React.FC<TopNavProps> = ({
         <a 
           href="/" 
           onClick={(e) => { e.preventDefault(); onViewChange('week'); }}
-          className="text-base sm:text-xl font-extrabold tracking-tight text-pink-600 flex items-center gap-1.5 group shrink-0"
+          className="text-sm sm:text-base font-extrabold tracking-tight text-pink-600 flex items-center gap-1.5 group shrink-0"
+          title="EduTrack Calendar & Reward Portal"
         >
           <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-pink-500 group-hover:scale-125 transition-transform shadow-xs" />
-          <span className="hidden sm:inline">Barbie Calendar</span>
-          <span className="sm:hidden">Barbie</span>
+          <span className="hidden xl:inline">EduTrack Calendar &amp; Reward Portal</span>
+          <span className="hidden sm:inline xl:hidden">EduTrack Portal</span>
+          <span className="sm:hidden">EduTrack</span>
           <span className="text-xs sm:text-sm">💖</span>
         </a>
 
@@ -304,20 +310,36 @@ export const TopNav: React.FC<TopNavProps> = ({
           )}
         </button>
 
-        {/* Barbie Cycle & Phase Pill Button (Hidden on mobile to save top bar space; accessible via bottom nav) */}
-        {cycleInfo && onOpenCycle && (
-          <button
-            onClick={onOpenCycle}
-            className={`hidden md:flex px-2 py-1.5 text-xs font-bold rounded-xl border shadow-2xs items-center gap-1 transition-all hover:scale-105 active:scale-95 ${
-              cycleInfo.isPeriod
-                ? 'bg-rose-100 text-rose-800 border-rose-300'
-                : 'bg-pink-100 text-pink-800 border-pink-300'
-            }`}
-            title={`Cycle Day ${cycleInfo.cycleDay}: ${cycleInfo.phaseName}`}
+        {/* Signed-in Gmail Identity Badge */}
+        {userEmail && (
+          <div
+            className="hidden lg:flex items-center gap-1.5 px-2 py-1 rounded-xl bg-white/95 border border-pink-200 shadow-2xs max-w-[190px]"
+            title={`Signed in as ${userName || 'User'} (${userEmail})`}
           >
-            <span>{cycleInfo.icon}</span>
-            <span>Day {cycleInfo.cycleDay}</span>
-          </button>
+            {userPhotoUrl ? (
+              <img
+                src={userPhotoUrl}
+                alt={userName || 'User'}
+                className="w-5 h-5 rounded-full border border-pink-200 shrink-0"
+              />
+            ) : (
+              <span className="w-5 h-5 rounded-full bg-pink-500 text-white text-[10px] font-black flex items-center justify-center shrink-0">
+                {(userName || userEmail)[0].toUpperCase()}
+              </span>
+            )}
+            <span className="text-[11px] font-bold text-pink-950 truncate">
+              {userEmail}
+            </span>
+            {onSignOut && (
+              <button
+                onClick={onSignOut}
+                className="p-1 text-pink-400 hover:text-rose-600 rounded-md transition-colors shrink-0"
+                title="Sign out of Gmail account"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         )}
 
         {/* De-Stress & Overload SOS (Desktop/Tablet) */}

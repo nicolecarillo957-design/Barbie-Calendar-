@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { CalendarEvent, CycleSettings, EventCategory } from '../types/calendar';
+import { CalendarEvent, EventCategory } from '../types/calendar';
 import { getCategoryConfig } from '../utils/categories';
 import { 
   computeEventColumns, 
@@ -9,7 +9,6 @@ import {
   isSameDay, 
   timeToMinutes 
 } from '../utils/dateUtils';
-import { getDayCycleStatus } from '../utils/cycleUtils';
 import { 
   Check, 
   Clock, 
@@ -30,7 +29,6 @@ interface WeekViewProps {
   onToggleComplete: (eventId: string) => void;
   onDeleteEvent: (eventId: string) => void;
   onStartFocus: (event: CalendarEvent) => void;
-  cycleSettings?: CycleSettings;
 }
 
 const START_HOUR = 7; // 7:00 AM
@@ -47,7 +45,6 @@ export const WeekView: React.FC<WeekViewProps> = ({
   onToggleComplete,
   onDeleteEvent,
   onStartFocus,
-  cycleSettings,
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -108,37 +105,18 @@ export const WeekView: React.FC<WeekViewProps> = ({
           const isToday = isSameDay(d, now);
           const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
           const dayNum = d.getDate();
-          const dateStr = formatDateKey(d);
-          const cycleStatus = cycleSettings ? getDayCycleStatus(dateStr, cycleSettings) : null;
 
           return (
             <div
               key={index}
               className={`py-2 px-2 text-center border-r border-pink-200/60 last:border-r-0 ${
-                cycleStatus?.isPeriod ? 'bg-rose-100/40' : isToday ? 'bg-pink-200/40' : ''
+                isToday ? 'bg-pink-200/40' : ''
               }`}
             >
               <div className="flex items-center justify-center gap-1">
                 <span className="text-[11px] font-extrabold uppercase tracking-wider text-pink-600">
                   {dayName}
                 </span>
-                {cycleStatus?.isPeriod && (
-                  <span
-                    className="text-[9px] px-1 py-0.2 rounded-full font-bold bg-rose-200/90 text-rose-800 border border-rose-300 shadow-2xs inline-flex items-center gap-0.5"
-                    title={`Period Day ${cycleStatus.cycleDay} 🩸`}
-                  >
-                    <span>🩸</span>
-                    <span className="hidden sm:inline">D{cycleStatus.cycleDay}</span>
-                  </span>
-                )}
-                {cycleStatus?.isOvulation && (
-                  <span
-                    className="text-[9px] px-1 py-0.2 rounded-full font-bold bg-fuchsia-200 text-fuchsia-800 border border-fuchsia-300 shadow-2xs"
-                    title="Ovulation Day ✨"
-                  >
-                    ✨
-                  </span>
-                )}
               </div>
               <div
                 className={`inline-flex items-center justify-center w-7 h-7 mt-0.5 rounded-full text-xs font-bold ${

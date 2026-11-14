@@ -40,13 +40,9 @@ export const CuteToastContainer: React.FC<CuteToastContainerProps> = ({
               </span>
               <div>
                 <div className="flex items-center gap-1.5">
-                  <span className={`text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border flex items-center gap-1 ${
-                    toast.type === 'cycle_morning'
-                      ? 'text-rose-700 bg-rose-100 border-rose-300'
-                      : 'text-pink-600 bg-pink-100/90 border-pink-200'
-                  }`}>
+                  <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border flex items-center gap-1 text-pink-600 bg-pink-100/90 border-pink-200">
                     <Sparkles className="w-2.5 h-2.5 text-pink-500 fill-pink-400" />
-                    {toast.type === 'cycle_morning' ? 'Morning Cycle Glow 🌸' : 'Reminder 🎀'}
+                    Reminder 🎀
                   </span>
                   <span className="text-[10px] text-pink-400 font-mono">Just now</span>
                 </div>

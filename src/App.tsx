@@ -5,33 +5,51 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import confetti from 'canvas-confetti';
-import { 
+import { onAuthStateChanged, User } from 'firebase/auth';
+import {
+  collection,
+  doc,
+  onSnapshot,
+  query,
+  where,
+} from 'firebase/firestore';
+import {
   AppNotification,
-  CalendarEvent, 
-  CalendarViewType, 
-  CycleSettings,
-  EventCategory, 
+  CalendarEvent,
+  CalendarViewType,
+  EventCategory,
   UnscheduledTask,
   TaskEvidence,
-  StudentStreakData
+  StudentStreakData,
+  UserProfileDoc,
 } from './types/calendar';
 import { CATEGORY_LIST } from './utils/categories';
 import { cuteSound } from './utils/cuteSound';
-import { 
-  formatDateKey, 
-  minutesToTime, 
-  parseDateKey, 
-  timeToMinutes 
+import {
+  formatDateKey,
+  minutesToTime,
+  timeToMinutes,
 } from './utils/dateUtils';
-import { DEFAULT_CYCLE_SETTINGS, getCurrentCycleInfo, getCycleMorningMessage } from './utils/cycleUtils';
-import { INITIAL_EVENTS, INITIAL_TASKS } from './utils/seedData';
-import { 
-  DEFAULT_STREAK_DATA, 
-  STREAK_STORAGE_KEY, 
-  STUDENT_NAME_STORAGE_KEY, 
-  TEACHER_MODE_STORAGE_KEY, 
-  calculateUpdatedStreak 
+import {
+  DEFAULT_STREAK_DATA,
+  calculateUpdatedStreak,
 } from './utils/streakUtils';
+import {
+  CREATOR_ADMIN_EMAIL,
+  auth,
+  db,
+  deleteEventFromFirestore,
+  deleteTaskFromFirestore,
+  handleFirestoreError,
+  OperationType,
+  saveEventToFirestore,
+  saveTaskToFirestore,
+  signOutUser,
+  syncUserProfileToFirestore,
+  updateAssignedTeacherEmail,
+  verifyEventEvidenceInFirestore,
+  verifyTaskEvidenceInFirestore,
+} from './firebase';
 import { TopNav } from './components/TopNav';
 import { Sidebar } from './components/Sidebar';
 import { WeekView } from './components/WeekView';
@@ -44,7 +62,6 @@ import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
 import { SettingsModal } from './components/SettingsModal';
 import { CuteNotificationCenter } from './components/CuteNotificationCenter';
 import { CuteToastContainer } from './components/CuteToastContainer';
-import { CycleGlowModal } from './components/CycleGlowModal';
 import { CalmSanctuaryModal } from './components/CalmSanctuaryModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { TaskInboxModal } from './components/TaskInboxModal';
@@ -52,98 +69,261 @@ import { ThemeSelectorModal } from './components/ThemeSelectorModal';
 import { TaskEvidenceModal } from './components/TaskEvidenceModal';
 import { TeacherMonitorModal } from './components/TeacherMonitorModal';
 import { WeeklyInsightsView } from './components/WeeklyInsightsView';
+import { GmailLoginGate } from './components/GmailLoginGate';
+import { FeedbackChatBox } from './components/FeedbackChatBox';
 import { CalendarThemeId, THEME_CONFIGS } from './types/theme';
+import { Eye, GraduationCap, ArrowLeft } from 'lucide-react';
 
-const EVENTS_STORAGE_KEY = 'barbie_calendar_events_user_v1';
-const TASKS_STORAGE_KEY = 'barbie_calendar_tasks_user_v1';
-const NOTIFS_STORAGE_KEY = 'barbie_calendar_notifs_user_v1';
-const CYCLE_STORAGE_KEY = 'barbie_calendar_cycle_v1';
+const NOTIFS_STORAGE_KEY = 'edutrack_notifs_v1';
 const THEME_STORAGE_KEY = 'calendar_color_theme_v1';
 
 const INITIAL_NOTIFICATIONS: AppNotification[] = [
   {
     id: 'notif-welcome',
-    title: 'Welcome to Barbie Calendar! 🎀💖',
-    message: 'Your glamorous calendar alerts you with sweet chimes and pink reminders for upcoming blocks!',
-    timestamp: '10:00 AM',
+    title: 'Welcome to EduTrack Calendar & Reward Portal! 🎀💖',
+    message:
+      'Sign in synced with your Gmail! Complete tasks with picture proofs to earn 5–10 pts and keep your study streak going.',
+    timestamp: 'Just now',
     type: 'celebration',
     isRead: false,
   },
-  {
-    id: 'notif-sample-1',
-    title: 'Executive Board Sync & Sprint Strategy 👑',
-    message: 'Starting in 15 minutes! Google Meet link ready.',
-    timestamp: '11:30 AM',
-    type: 'event_reminder',
-    eventId: 'evt-mon-3',
-    isRead: false,
-  }
 ];
 
 export default function App() {
-  // 1. Calendar Date State (default to Sept 28, 2026 Monday)
-  const [currentDate, setCurrentDate] = useState<Date>(() => {
-    return new Date(2026, 8, 28, 10, 0, 0); // 2026-09-28
-  });
+  // 0. Firebase Authentication State
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
-  // 2. Active View ('week' | 'day' | 'month' | 'audit')
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setCurrentUser(user);
+      if (user) {
+        try {
+          await syncUserProfileToFirestore(
+            user,
+            DEFAULT_STREAK_DATA,
+            user.displayName || user.email?.split('@')[0] || 'Student'
+          );
+        } catch (err) {
+          console.error('Failed initial profile sync', err);
+        }
+      } else {
+        setEvents([]);
+        setTasks([]);
+        setMonitoredStudents([]);
+        setMonitoredStudent(null);
+      }
+      setAuthLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // 1. Calendar Date State (starts on today)
+  const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
+
+  // 2. Active View ('week' | 'day' | 'month' | 'insights' | 'audit')
   const [currentView, setCurrentView] = useState<CalendarViewType>('week');
 
-  // 3. Events State (with LocalStorage persistence)
-  const [events, setEvents] = useState<CalendarEvent[]>(() => {
-    try {
-      // Clear legacy sample events so the user starts with a clean slate
-      localStorage.removeItem('chronos_calendar_events_v2');
-      localStorage.removeItem('chronos_calendar_events');
-      localStorage.removeItem('chronos_calendar_tasks_v2');
-      localStorage.removeItem('chronos_calendar_tasks');
+  // 3. Firestore-Synced User Profile, Student Monitoring & Calendar Data
+  const [studentName, setStudentName] = useState<string>('Student');
+  const [teacherEmail, setTeacherEmail] = useState<string>('');
+  const [streakData, setStreakData] = useState<StudentStreakData>(DEFAULT_STREAK_DATA);
 
-      const stored = localStorage.getItem(EVENTS_STORAGE_KEY);
-      if (stored) {
-        return JSON.parse(stored);
-      }
-    } catch (e) {
-      console.error('Failed reading events from storage', e);
-    }
-    return INITIAL_EVENTS; // Clean empty schedule
-  });
+  const [monitoredStudents, setMonitoredStudents] = useState<UserProfileDoc[]>([]);
+  const [monitoredStudent, setMonitoredStudent] = useState<UserProfileDoc | null>(null);
 
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [tasks, setTasks] = useState<UnscheduledTask[]>([]);
+
+  const isCreatorAdmin =
+    (currentUser?.email || '').toLowerCase() === CREATOR_ADMIN_EMAIL.toLowerCase();
+
+  // Listener A: Own User Profile in Firestore
   useEffect(() => {
-    try {
-      localStorage.setItem(EVENTS_STORAGE_KEY, JSON.stringify(events));
-    } catch (e) {
-      console.error('Failed saving events to storage', e);
-    }
-  }, [events]);
+    if (authLoading || !currentUser) return;
 
-  // 4. Unscheduled Tasks / Backlog State
-  const [tasks, setTasks] = useState<UnscheduledTask[]>(() => {
-    try {
-      const stored = localStorage.getItem(TASKS_STORAGE_KEY);
-      if (stored) {
-        return JSON.parse(stored);
+    const userRef = doc(db, 'users', currentUser.uid);
+    const unsubscribe = onSnapshot(
+      userRef,
+      (snap) => {
+        if (!snap.exists()) return;
+        const data = snap.data();
+        setStudentName(
+          data.displayName || currentUser.displayName || currentUser.email?.split('@')[0] || 'Student'
+        );
+        setTeacherEmail(data.teacherEmail || '');
+        setStreakData({
+          currentStreak: data.currentStreak ?? 0,
+          bestStreak: data.bestStreak ?? 0,
+          totalPoints: data.totalPoints ?? 0,
+          lastActiveDate: data.lastActiveDate,
+          historyDates: Array.isArray(data.historyDates) ? data.historyDates : [],
+        });
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.GET, `users/${currentUser.uid}`);
       }
-    } catch (e) {
-      console.error('Failed reading tasks from storage', e);
-    }
-    return INITIAL_TASKS;
-  });
+    );
 
+    return () => unsubscribe();
+  }, [authLoading, currentUser]);
+
+  // Listener B: Students Assigned to Current User's Gmail (or All Users for Creator Admin)
   useEffect(() => {
-    try {
-      localStorage.setItem(TASKS_STORAGE_KEY, JSON.stringify(tasks));
-    } catch (e) {
-      console.error('Failed saving tasks to storage', e);
-    }
-  }, [tasks]);
+    if (authLoading || !currentUser || !currentUser.email) return;
 
-  // 5. Notifications State
+    const usersRef = collection(db, 'users');
+    const q = isCreatorAdmin
+      ? query(usersRef)
+      : query(usersRef, where('teacherEmail', '==', currentUser.email.toLowerCase()));
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const list: UserProfileDoc[] = [];
+        snapshot.docs.forEach((docSnap) => {
+          if (docSnap.id === currentUser.uid) return;
+          const d = docSnap.data();
+          list.push({
+            uid: docSnap.id,
+            email: d.email || '',
+            displayName: d.displayName || d.email || 'Student',
+            photoURL: d.photoURL,
+            teacherEmail: d.teacherEmail,
+            currentStreak: d.currentStreak ?? 0,
+            bestStreak: d.bestStreak ?? 0,
+            totalPoints: d.totalPoints ?? 0,
+            lastActiveDate: d.lastActiveDate,
+            historyDates: Array.isArray(d.historyDates) ? d.historyDates : [],
+          });
+        });
+        setMonitoredStudents(list);
+        setMonitoredStudent((prev) => {
+          if (!prev) return null;
+          const refreshed = list.find((s) => s.uid === prev.uid);
+          return refreshed || prev;
+        });
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'users');
+      }
+    );
+
+    return () => unsubscribe();
+  }, [authLoading, currentUser, isCreatorAdmin]);
+
+  const activeTargetUid = monitoredStudent ? monitoredStudent.uid : currentUser?.uid;
+  const isMonitoringOtherStudent = Boolean(
+    monitoredStudent && currentUser && monitoredStudent.uid !== currentUser.uid
+  );
+
+  // Listener C: Events for Active Calendar (Own or Selected Student)
+  useEffect(() => {
+    if (authLoading || !currentUser || !activeTargetUid) return;
+
+    const eventsRef = collection(db, 'users', activeTargetUid, 'events');
+    const q = isCreatorAdmin
+      ? query(eventsRef)
+      : activeTargetUid === currentUser.uid
+      ? query(eventsRef, where('ownerUid', '==', currentUser.uid))
+      : query(
+          eventsRef,
+          where('teacherEmail', '==', (currentUser.email || '').toLowerCase())
+        );
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const loaded: CalendarEvent[] = snapshot.docs.map((docSnap) => {
+          const d = docSnap.data();
+          return {
+            id: docSnap.id,
+            title: d.title,
+            description: d.description,
+            category: d.category,
+            date: d.date,
+            startTime: d.startTime,
+            endTime: d.endTime,
+            isCompleted: Boolean(d.isCompleted),
+            priority: d.priority || 'medium',
+            location: d.location,
+            meetingUrl: d.meetingUrl,
+            subtasks: d.subtasks,
+            focusNotes: d.focusNotes,
+            recurrence: d.recurrence,
+            sourceTaskId: d.sourceTaskId,
+            reminders: d.reminders,
+            evidence: d.evidence,
+            pointsValue: d.pointsValue,
+          };
+        });
+        setEvents(loaded);
+      },
+      (error) => {
+        handleFirestoreError(
+          error,
+          OperationType.LIST,
+          `users/${activeTargetUid}/events`
+        );
+      }
+    );
+
+    return () => unsubscribe();
+  }, [authLoading, currentUser, activeTargetUid, isCreatorAdmin]);
+
+  // Listener D: Tasks for Active Calendar (Own or Selected Student)
+  useEffect(() => {
+    if (authLoading || !currentUser || !activeTargetUid) return;
+
+    const tasksRef = collection(db, 'users', activeTargetUid, 'tasks');
+    const q = isCreatorAdmin
+      ? query(tasksRef)
+      : activeTargetUid === currentUser.uid
+      ? query(tasksRef, where('ownerUid', '==', currentUser.uid))
+      : query(
+          tasksRef,
+          where('teacherEmail', '==', (currentUser.email || '').toLowerCase())
+        );
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const loaded: UnscheduledTask[] = snapshot.docs.map((docSnap) => {
+          const d = docSnap.data();
+          return {
+            id: docSnap.id,
+            title: d.title,
+            category: d.category,
+            estimatedMinutes: d.estimatedMinutes ?? 30,
+            priority: d.priority || 'medium',
+            completed: Boolean(d.completed),
+            dueDate: d.dueDate,
+            description: d.description,
+            reminderMinutesBefore: d.reminderMinutesBefore,
+            reminderTime: d.reminderTime,
+            evidence: d.evidence,
+            pointsValue: d.pointsValue,
+          };
+        });
+        setTasks(loaded);
+      },
+      (error) => {
+        handleFirestoreError(
+          error,
+          OperationType.LIST,
+          `users/${activeTargetUid}/tasks`
+        );
+      }
+    );
+
+    return () => unsubscribe();
+  }, [authLoading, currentUser, activeTargetUid, isCreatorAdmin]);
+
+  // 4. Notifications State
   const [notifications, setNotifications] = useState<AppNotification[]>(() => {
     try {
       const stored = localStorage.getItem(NOTIFS_STORAGE_KEY);
-      if (stored) {
-        return JSON.parse(stored);
-      }
+      if (stored) return JSON.parse(stored);
     } catch (e) {
       console.error('Failed reading notifications from storage', e);
     }
@@ -163,7 +343,7 @@ export default function App() {
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
   const triggeredRemindersRef = useRef<Set<string>>(new Set());
 
-  // 6. Category Filters
+  // 5. Category Filters
   const [selectedCategories, setSelectedCategories] = useState<Set<EventCategory>>(() => {
     return new Set(CATEGORY_LIST.map((c) => c.id));
   });
@@ -180,10 +360,10 @@ export default function App() {
     });
   }, []);
 
-  // 7. Search Query
+  // 6. Search Query
   const [searchQuery, setSearchQuery] = useState('');
 
-  // 8. Modal Controls
+  // 7. Modal Controls
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [eventToEdit, setEventToEdit] = useState<CalendarEvent | null>(null);
   const [slotDate, setSlotDate] = useState<string>('');
@@ -196,7 +376,6 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
-  const [isCycleModalOpen, setIsCycleModalOpen] = useState(false);
   const [isCalmModalOpen, setIsCalmModalOpen] = useState(false);
   const [isTaskInboxOpen, setIsTaskInboxOpen] = useState(false);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
@@ -211,49 +390,25 @@ export default function App() {
     existingEvidence?: TaskEvidence;
   } | null>(null);
 
-  // Student Name State (Default to user name or 'Nicole C.')
-  const [studentName, setStudentName] = useState<string>(() => {
-    try {
-      const stored = localStorage.getItem(STUDENT_NAME_STORAGE_KEY);
-      if (stored) return stored;
-    } catch (e) {
-      console.error(e);
-    }
-    return 'Nicole C.';
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STUDENT_NAME_STORAGE_KEY, studentName);
-    } catch (e) {
-      console.error(e);
-    }
-  }, [studentName]);
-
-  // Student Study Streak & Points State
-  const [streakData, setStreakData] = useState<StudentStreakData>(() => {
-    try {
-      const stored = localStorage.getItem(STREAK_STORAGE_KEY);
-      if (stored) return JSON.parse(stored);
-    } catch (e) {
-      console.error(e);
-    }
-    return DEFAULT_STREAK_DATA;
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STREAK_STORAGE_KEY, JSON.stringify(streakData));
-    } catch (e) {
-      console.error(e);
-    }
-  }, [streakData]);
-
-  // 9. Calendar Color Theme State
+  // 8. Calendar Color Theme State
   const [currentTheme, setCurrentTheme] = useState<CalendarThemeId>(() => {
     try {
       const stored = localStorage.getItem(THEME_STORAGE_KEY) as CalendarThemeId | null;
-      if (stored && ['pink', 'blue', 'red', 'orange', 'black', 'yellow', 'white', 'green', 'purple', 'rainbow'].includes(stored)) {
+      if (
+        stored &&
+        [
+          'pink',
+          'blue',
+          'red',
+          'orange',
+          'black',
+          'yellow',
+          'white',
+          'green',
+          'purple',
+          'rainbow',
+        ].includes(stored)
+      ) {
         return stored;
       }
     } catch (e) {
@@ -271,103 +426,47 @@ export default function App() {
     }
   }, [currentTheme]);
 
-  // 10. Barbie Cycle & Period Settings
-  const [cycleSettings, setCycleSettings] = useState<CycleSettings>(() => {
-    try {
-      const stored = localStorage.getItem(CYCLE_STORAGE_KEY);
-      if (stored) {
-        return JSON.parse(stored);
-      }
-    } catch (e) {
-      console.error('Failed reading cycle settings from storage', e);
-    }
-    return DEFAULT_CYCLE_SETTINGS;
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(CYCLE_STORAGE_KEY, JSON.stringify(cycleSettings));
-    } catch (e) {
-      console.error('Failed saving cycle settings to storage', e);
-    }
-  }, [cycleSettings]);
-
-  const isCycleTrackingEnabled = cycleSettings.enabled !== false;
-
-  const currentCycleInfo = useMemo(() => {
-    if (!isCycleTrackingEnabled) return undefined;
-    return getCurrentCycleInfo(currentDate, cycleSettings);
-  }, [currentDate, cycleSettings, isCycleTrackingEnabled]);
-
   // Trigger Notification Function
-  const triggerNotification = useCallback((notifData: {
-    title: string;
-    message: string;
-    type: 'event_reminder' | 'task_reminder' | 'test' | 'celebration' | 'cycle_morning';
-    eventId?: string;
-    taskId?: string;
-    cyclePhase?: any;
-  }) => {
-    const newNotif: AppNotification = {
-      id: `notif-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-      title: notifData.title,
-      message: notifData.message,
-      type: notifData.type,
-      eventId: notifData.eventId,
-      taskId: notifData.taskId,
-      cyclePhase: notifData.cyclePhase,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      isRead: false,
-    };
+  const triggerNotification = useCallback(
+    (notifData: {
+      title: string;
+      message: string;
+      type: 'event_reminder' | 'task_reminder' | 'test' | 'celebration';
+      eventId?: string;
+      taskId?: string;
+    }) => {
+      const newNotif: AppNotification = {
+        id: `notif-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        title: notifData.title,
+        message: notifData.message,
+        type: notifData.type,
+        eventId: notifData.eventId,
+        taskId: notifData.taskId,
+        timestamp: new Date().toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+        isRead: false,
+      };
 
-    setNotifications((prev) => [newNotif, ...prev]);
-    setActiveToasts((prev) => [newNotif, ...prev.slice(0, 2)]); // Keep max 3 active toasts
-    cuteSound.playCuteChime();
+      setNotifications((prev) => [newNotif, ...prev]);
+      setActiveToasts((prev) => [newNotif, ...prev.slice(0, 2)]);
+      cuteSound.playCuteChime();
 
-    // Auto dismiss toast after 9 seconds
-    setTimeout(() => {
-      setActiveToasts((prev) => prev.filter((t) => t.id !== newNotif.id));
-    }, 9000);
-  }, []);
+      setTimeout(() => {
+        setActiveToasts((prev) => prev.filter((t) => t.id !== newNotif.id));
+      }, 9000);
+    },
+    []
+  );
 
-  // Trigger Cycle-Synced Morning Encouragement
-  const handleTriggerCycleMorningNotification = useCallback(() => {
-    const cycleInfo = getCurrentCycleInfo(currentDate, cycleSettings);
-    const morningMsg = getCycleMorningMessage(cycleInfo);
-    
+  const notifyReadOnlyMonitoring = useCallback(() => {
     triggerNotification({
-      title: morningMsg.title,
-      message: morningMsg.message,
-      type: 'cycle_morning',
-      cyclePhase: cycleInfo.phase,
+      title: 'Teacher View-Only Monitoring 👩‍🏫',
+      message: `You are viewing ${monitoredStudent?.displayName || 'a student'}'s calendar. Click "Back to My Calendar" to edit your own schedule, or open Teacher Monitor to verify photo proofs.`,
+      type: 'celebration',
     });
-    cuteSound.playSparkle();
-  }, [currentDate, cycleSettings, triggerNotification]);
-
-  // Automated Daily Cycle-Synced Morning Notification (Delivered on active day if opted-in)
-  const lastMorningDeliveredDateRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!cycleSettings.enabled || !cycleSettings.dailyMorningNotificationEnabled) return;
-    const dateKey = formatDateKey(currentDate);
-
-    if (lastMorningDeliveredDateRef.current !== dateKey) {
-      lastMorningDeliveredDateRef.current = dateKey;
-      
-      const timer = setTimeout(() => {
-        const cycleInfo = getCurrentCycleInfo(currentDate, cycleSettings);
-        const morningMsg = getCycleMorningMessage(cycleInfo);
-        triggerNotification({
-          title: morningMsg.title,
-          message: morningMsg.message,
-          type: 'cycle_morning',
-          cyclePhase: cycleInfo.phase,
-        });
-      }, 1200);
-
-      return () => clearTimeout(timer);
-    }
-  }, [currentDate, cycleSettings, triggerNotification]);
+  }, [monitoredStudent, triggerNotification]);
 
   const handleDismissToast = useCallback((id: string) => {
     setActiveToasts((prev) => prev.filter((t) => t.id !== id));
@@ -377,25 +476,28 @@ export default function App() {
     cuteSound.playCutePop();
   }, []);
 
-  const handleSnooze = useCallback((id: string, minutes: number) => {
-    setActiveToasts((prev) => prev.filter((t) => t.id !== id));
-    cuteSound.playCutePop();
+  const handleSnooze = useCallback(
+    (id: string, minutes: number) => {
+      setActiveToasts((prev) => prev.filter((t) => t.id !== id));
+      cuteSound.playCutePop();
 
-    // Show temporary notice and re-trigger after delay (e.g. 10s for fast test if 5m, or standard delay)
-    const delayMs = minutes * 60 * 1000;
-    setTimeout(() => {
-      triggerNotification({
-        title: `Snoozed Reminder (${minutes}m passed) 🌸`,
-        message: 'Your snoozed timebox reminder is ready! Time to check in 🎀',
-        type: 'event_reminder',
-      });
-    }, Math.min(delayMs, 15000)); // Capped at 15s in interactive sandbox so users can test snooze easily!
-  }, [triggerNotification]);
+      const delayMs = minutes * 60 * 1000;
+      setTimeout(() => {
+        triggerNotification({
+          title: `Snoozed Reminder (${minutes}m passed) 🌸`,
+          message: 'Your snoozed timebox reminder is ready! Time to check in 🎀',
+          type: 'event_reminder',
+        });
+      }, Math.min(delayMs, 15000));
+    },
+    [triggerNotification]
+  );
 
   const handleTriggerTestReminder = useCallback(() => {
     triggerNotification({
-      title: 'Coffee & Deep Work Timebox 🌸',
-      message: 'Sweet reminder! Take a sip of water, stretch, and let’s start your focus sprint 🎀',
+      title: 'Study Focus Reminder 🌸',
+      message:
+        'Sweet reminder! Take a sip of water, stretch, and let’s start your focus sprint 🎀',
       type: 'test',
     });
   }, [triggerNotification]);
@@ -417,7 +519,6 @@ export default function App() {
         if (!ev.reminders || ev.reminders.length === 0 || ev.isCompleted) return;
         const evDate = ev.date;
 
-        // Check if event is on the same day as real time or simulated active day
         if (evDate !== currentDateStr && evDate !== formatDateKey(currentDate)) return;
 
         const startMin = timeToMinutes(ev.startTime);
@@ -426,7 +527,6 @@ export default function App() {
           const reminderMin = startMin - rem.minutesBefore;
           const key = `${ev.id}-${rem.id}-${evDate}`;
 
-          // If within current minute window and hasn't fired yet
           if (
             Math.abs(currentMinutes - reminderMin) <= 1 &&
             !triggeredRemindersRef.current.has(key)
@@ -434,9 +534,10 @@ export default function App() {
             triggeredRemindersRef.current.add(key);
             triggerNotification({
               title: `${ev.title} 💖`,
-              message: rem.minutesBefore === 0
-                ? `Starting right now at ${ev.startTime}! ⏰`
-                : `Starting in ${rem.minutesBefore} minutes (${ev.startTime}) 🎀`,
+              message:
+                rem.minutesBefore === 0
+                  ? `Starting right now at ${ev.startTime}! ⏰`
+                  : `Starting in ${rem.minutesBefore} minutes (${ev.startTime}) 🎀`,
               type: 'event_reminder',
               eventId: ev.id,
             });
@@ -491,261 +592,401 @@ export default function App() {
   }, [currentView]);
 
   const handleToday = useCallback(() => {
-    setCurrentDate(new Date(2026, 8, 28, 10, 0, 0));
+    setCurrentDate(new Date());
   }, []);
 
   // Event handlers
-  const handleSlotClick = useCallback((dateStr: string, timeStr: string) => {
-    setEventToEdit(null);
-    setSlotDate(dateStr);
-    setSlotTime(timeStr);
-    setIsEventModalOpen(true);
-  }, []);
-
-  const handleSelectEvent = useCallback((event: CalendarEvent) => {
-    setEventToEdit(event);
-    setSlotDate(event.date);
-    setSlotTime(event.startTime);
-    setIsEventModalOpen(true);
-  }, []);
-
-  const handleSaveEvent = useCallback((eventData: CalendarEvent) => {
-    setEvents((prev) => {
-      const index = prev.findIndex((e) => e.id === eventData.id);
-      if (index >= 0) {
-        const updated = [...prev];
-        updated[index] = eventData;
-        return updated;
+  const handleSlotClick = useCallback(
+    (dateStr: string, timeStr: string) => {
+      if (isMonitoringOtherStudent) {
+        notifyReadOnlyMonitoring();
+        return;
       }
-      return [...prev, eventData];
-    });
+      setEventToEdit(null);
+      setSlotDate(dateStr);
+      setSlotTime(timeStr);
+      setIsEventModalOpen(true);
+    },
+    [isMonitoringOtherStudent, notifyReadOnlyMonitoring]
+  );
 
-    // If event has reminders, play sweet sparkle feedback!
-    if (eventData.reminders && eventData.reminders.length > 0) {
-      cuteSound.playSparkle();
-    }
-  }, []);
+  const handleSelectEvent = useCallback(
+    (event: CalendarEvent) => {
+      if (isMonitoringOtherStudent) {
+        setIsTeacherMonitorOpen(true);
+        return;
+      }
+      setEventToEdit(event);
+      setSlotDate(event.date);
+      setSlotTime(event.startTime);
+      setIsEventModalOpen(true);
+    },
+    [isMonitoringOtherStudent]
+  );
 
-  const handleDeleteEvent = useCallback((eventId: string) => {
-    setEvents((prev) => prev.filter((e) => e.id !== eventId));
-  }, []);
-
-  const handleDuplicateEvent = useCallback((eventToDup: CalendarEvent) => {
-    const sMin = timeToMinutes(eventToDup.startTime);
-    const eMin = timeToMinutes(eventToDup.endTime);
-    const dur = eMin - sMin;
-
-    const newStart = minutesToTime(Math.min(1440 - dur, sMin + 60));
-    const newEnd = minutesToTime(timeToMinutes(newStart) + dur);
-
-    const dup: CalendarEvent = {
-      ...eventToDup,
-      id: `evt-${Date.now()}`,
-      title: `${eventToDup.title} (Copy)`,
-      startTime: newStart,
-      endTime: newEnd,
-      isCompleted: false,
-    };
-    setEvents((prev) => [...prev, dup]);
-  }, []);
-
-  const handleToggleComplete = useCallback((eventId: string) => {
-    const target = events.find((e) => e.id === eventId);
-    if (!target) return;
-
-    if (target.isCompleted) {
-      // Uncheck task: simply toggle off
-      setEvents((prev) =>
-        prev.map((e) => (e.id === eventId ? { ...e, isCompleted: false } : e))
+  const handleSaveEvent = useCallback(
+    async (eventData: CalendarEvent) => {
+      if (!currentUser || isMonitoringOtherStudent) return;
+      await saveEventToFirestore(
+        currentUser.uid,
+        eventData,
+        teacherEmail || undefined
       );
-      cuteSound.playCutePop();
-    } else {
-      // Completing task: Open Picture Evidence modal so student attaches photo proof, recorded time, and earns streak!
-      setEvidenceTarget({
-        type: 'event',
-        id: target.id,
-        title: target.title,
-        category: target.category,
-        pointsValue: target.pointsValue || (target.category === 'deep_work' || target.category === 'planning' ? 10 : 5),
-        existingEvidence: target.evidence,
-      });
-      setIsEvidenceModalOpen(true);
-      cuteSound.playSparkle();
-    }
-  }, [events]);
 
-  const handleConfirmCompletionWithEvidence = useCallback((evidence: TaskEvidence) => {
-    if (!evidenceTarget) return;
+      if (eventData.reminders && eventData.reminders.length > 0) {
+        cuteSound.playSparkle();
+      }
+    },
+    [currentUser, isMonitoringOtherStudent, teacherEmail]
+  );
 
-    const points = evidence.pointsEarned;
-    const completedDate = formatDateKey(currentDate);
+  const handleDeleteEvent = useCallback(
+    async (eventId: string) => {
+      if (!currentUser || isMonitoringOtherStudent) {
+        if (isMonitoringOtherStudent) notifyReadOnlyMonitoring();
+        return;
+      }
+      await deleteEventFromFirestore(currentUser.uid, eventId);
+    },
+    [currentUser, isMonitoringOtherStudent, notifyReadOnlyMonitoring]
+  );
 
-    if (evidenceTarget.type === 'event') {
-      setEvents((prev) =>
-        prev.map((e) => {
-          if (e.id === evidenceTarget.id) {
-            return {
-              ...e,
+  const handleDuplicateEvent = useCallback(
+    async (eventToDup: CalendarEvent) => {
+      if (!currentUser || isMonitoringOtherStudent) return;
+      const sMin = timeToMinutes(eventToDup.startTime);
+      const eMin = timeToMinutes(eventToDup.endTime);
+      const dur = eMin - sMin;
+
+      const newStart = minutesToTime(Math.min(1440 - dur, sMin + 60));
+      const newEnd = minutesToTime(timeToMinutes(newStart) + dur);
+
+      const dup: CalendarEvent = {
+        ...eventToDup,
+        id: `evt_${Date.now()}`,
+        title: `${eventToDup.title} (Copy)`,
+        startTime: newStart,
+        endTime: newEnd,
+        isCompleted: false,
+        evidence: undefined,
+      };
+      await saveEventToFirestore(
+        currentUser.uid,
+        dup,
+        teacherEmail || undefined
+      );
+    },
+    [currentUser, isMonitoringOtherStudent, teacherEmail]
+  );
+
+  const handleToggleComplete = useCallback(
+    async (eventId: string) => {
+      if (!currentUser) return;
+      if (isMonitoringOtherStudent) {
+        notifyReadOnlyMonitoring();
+        return;
+      }
+      const target = events.find((e) => e.id === eventId);
+      if (!target) return;
+
+      if (target.isCompleted) {
+        await saveEventToFirestore(
+          currentUser.uid,
+          { ...target, isCompleted: false },
+          teacherEmail || undefined
+        );
+        cuteSound.playCutePop();
+      } else {
+        setEvidenceTarget({
+          type: 'event',
+          id: target.id,
+          title: target.title,
+          category: target.category,
+          pointsValue:
+            target.pointsValue ||
+            (target.category === 'deep_work' || target.category === 'planning'
+              ? 10
+              : 5),
+          existingEvidence: target.evidence,
+        });
+        setIsEvidenceModalOpen(true);
+        cuteSound.playSparkle();
+      }
+    },
+    [
+      currentUser,
+      isMonitoringOtherStudent,
+      notifyReadOnlyMonitoring,
+      events,
+      teacherEmail,
+    ]
+  );
+
+  const handleConfirmCompletionWithEvidence = useCallback(
+    async (evidence: TaskEvidence) => {
+      if (!evidenceTarget || !currentUser || isMonitoringOtherStudent) return;
+
+      const points = evidence.pointsEarned;
+      const completedDate = formatDateKey(currentDate);
+
+      if (evidenceTarget.type === 'event') {
+        const target = events.find((e) => e.id === evidenceTarget.id);
+        if (target) {
+          await saveEventToFirestore(
+            currentUser.uid,
+            {
+              ...target,
               isCompleted: true,
               evidence,
               pointsValue: points,
-            };
-          }
-          return e;
-        })
-      );
-    } else {
-      setTasks((prev) =>
-        prev.map((t) => {
-          if (t.id === evidenceTarget.id) {
-            return {
-              ...t,
+            },
+            teacherEmail || undefined
+          );
+        }
+      } else {
+        const target = tasks.find((t) => t.id === evidenceTarget.id);
+        if (target) {
+          await saveTaskToFirestore(
+            currentUser.uid,
+            {
+              ...target,
               completed: true,
               evidence,
               pointsValue: points,
-            };
-          }
-          return t;
-        })
+            },
+            teacherEmail || undefined
+          );
+        }
+      }
+
+      const updatedStreak = calculateUpdatedStreak(streakData, completedDate, points);
+      await syncUserProfileToFirestore(
+        currentUser,
+        updatedStreak,
+        studentName,
+        teacherEmail || undefined
       );
-    }
 
-    // Update streak and points!
-    setStreakData((prev) => {
-      const updated = calculateUpdatedStreak(prev, completedDate, points);
-      return updated;
-    });
+      confetti({
+        particleCount: 75,
+        spread: 70,
+        origin: { y: 0.7 },
+        colors: ['#f472b6', '#ec4899', '#db2777', '#f59e0b', '#10b981'],
+      });
+      cuteSound.playCelebrationFanfare();
 
-    // Confetti and fanfare celebration!
-    confetti({
-      particleCount: 75,
-      spread: 70,
-      origin: { y: 0.7 },
-      colors: ['#f472b6', '#ec4899', '#db2777', '#f59e0b', '#10b981'],
-    });
-    cuteSound.playCelebrationFanfare();
+      triggerNotification({
+        title: `Task Verified! +${points} Points & Streak Burning! 🔥`,
+        message: `Picture proof stamped at ${
+          evidence.completedTimeFormatted.split(' at ')[1] || 'now'
+        }. Teacher can review anytime! 💖`,
+        type: 'celebration',
+      });
 
-    triggerNotification({
-      title: `Task Verified! +${points} Points & Streak Burning! 🔥`,
-      message: `Picture proof stamped at ${evidence.completedTimeFormatted.split(' at ')[1] || 'now'}. Teacher can review anytime! 💖`,
-      type: 'celebration',
-    });
+      setEvidenceTarget(null);
+    },
+    [
+      evidenceTarget,
+      currentUser,
+      isMonitoringOtherStudent,
+      currentDate,
+      events,
+      tasks,
+      teacherEmail,
+      streakData,
+      studentName,
+      triggerNotification,
+    ]
+  );
 
-    setEvidenceTarget(null);
-  }, [evidenceTarget, currentDate]);
+  const handleUpdateEventEvidence = useCallback(
+    async (eventId: string, updatedEvidence: TaskEvidence) => {
+      if (!activeTargetUid) return;
+      await verifyEventEvidenceInFirestore(activeTargetUid, eventId, updatedEvidence);
+    },
+    [activeTargetUid]
+  );
 
-  const handleUpdateEventEvidence = useCallback((eventId: string, updatedEvidence: TaskEvidence) => {
-    setEvents((prev) =>
-      prev.map((e) => (e.id === eventId ? { ...e, evidence: updatedEvidence } : e))
-    );
-  }, []);
+  const handleUpdateTaskEvidence = useCallback(
+    async (taskId: string, updatedEvidence: TaskEvidence) => {
+      if (!activeTargetUid) return;
+      await verifyTaskEvidenceInFirestore(activeTargetUid, taskId, updatedEvidence);
+    },
+    [activeTargetUid]
+  );
 
-  const handleUpdateTaskEvidence = useCallback((taskId: string, updatedEvidence: TaskEvidence) => {
-    setTasks((prev) =>
-      prev.map((t) => (t.id === taskId ? { ...t, evidence: updatedEvidence } : t))
-    );
-  }, []);
-
-  const handleToggleSubtask = useCallback((eventId: string, subtaskId: string) => {
-    setEvents((prev) =>
-      prev.map((ev) => {
-        if (ev.id !== eventId || !ev.subtasks) return ev;
-        const updatedSubtasks = ev.subtasks.map((st) =>
-          st.id === subtaskId ? { ...st, completed: !st.completed } : st
-        );
-        return { ...ev, subtasks: updatedSubtasks };
-      })
-    );
-  }, []);
+  const handleToggleSubtask = useCallback(
+    async (eventId: string, subtaskId: string) => {
+      if (!currentUser || isMonitoringOtherStudent) {
+        if (isMonitoringOtherStudent) notifyReadOnlyMonitoring();
+        return;
+      }
+      const ev = events.find((item) => item.id === eventId);
+      if (!ev || !ev.subtasks) return;
+      const updatedSubtasks = ev.subtasks.map((st) =>
+        st.id === subtaskId ? { ...st, completed: !st.completed } : st
+      );
+      await saveEventToFirestore(
+        currentUser.uid,
+        { ...ev, subtasks: updatedSubtasks },
+        teacherEmail || undefined
+      );
+    },
+    [
+      currentUser,
+      isMonitoringOtherStudent,
+      notifyReadOnlyMonitoring,
+      events,
+      teacherEmail,
+    ]
+  );
 
   // Backlog / Task Handlers
-  const handleAddTask = useCallback((taskData: Omit<UnscheduledTask, 'id' | 'completed'>) => {
-    const newTask: UnscheduledTask = {
-      ...taskData,
-      id: `task-${Date.now()}`,
-      completed: false,
-    };
-    setTasks((prev) => [newTask, ...prev]);
-  }, []);
-
-  const handleToggleTaskComplete = useCallback((taskId: string) => {
-    const target = tasks.find((t) => t.id === taskId);
-    if (!target) return;
-
-    if (target.completed) {
-      setTasks((prev) =>
-        prev.map((t) => (t.id === taskId ? { ...t, completed: false } : t))
+  const handleAddTask = useCallback(
+    async (taskData: Omit<UnscheduledTask, 'id' | 'completed'>) => {
+      if (!currentUser || isMonitoringOtherStudent) {
+        if (isMonitoringOtherStudent) notifyReadOnlyMonitoring();
+        return;
+      }
+      const newTask: UnscheduledTask = {
+        ...taskData,
+        id: `task_${Date.now()}`,
+        completed: false,
+      };
+      await saveTaskToFirestore(
+        currentUser.uid,
+        newTask,
+        teacherEmail || undefined
       );
-      cuteSound.playCutePop();
-    } else {
-      setEvidenceTarget({
-        type: 'task',
-        id: target.id,
-        title: target.title,
-        category: target.category,
-        pointsValue: target.pointsValue || 5,
-        existingEvidence: target.evidence,
-      });
-      setIsEvidenceModalOpen(true);
-      cuteSound.playSparkle();
-    }
-  }, [tasks]);
+    },
+    [currentUser, isMonitoringOtherStudent, notifyReadOnlyMonitoring, teacherEmail]
+  );
 
-  const handleDeleteTask = useCallback((taskId: string) => {
-    setTasks((prev) => prev.filter((t) => t.id !== taskId));
-  }, []);
+  const handleToggleTaskComplete = useCallback(
+    async (taskId: string) => {
+      if (!currentUser) return;
+      if (isMonitoringOtherStudent) {
+        notifyReadOnlyMonitoring();
+        return;
+      }
+      const target = tasks.find((t) => t.id === taskId);
+      if (!target) return;
 
-  const handleToggleTaskReminder = useCallback((taskId: string) => {
-    setTasks((prev) =>
-      prev.map((t) => {
-        if (t.id !== taskId) return t;
-        const current = t.reminderMinutesBefore;
-        // Cycle: none -> 15m -> 30m -> 60m -> none
-        const next = !current ? 15 : current === 15 ? 30 : current === 30 ? 60 : undefined;
-        if (next) {
-          cuteSound.playSparkle();
-          triggerNotification({
-            title: `Reminder Set for "${t.title}" 🎀`,
-            message: `We'll remind you ${next} minutes before scheduling ✨`,
-            type: 'task_reminder',
-            taskId: t.id,
-          });
-        } else {
-          cuteSound.playCutePop();
-        }
-        return { ...t, reminderMinutesBefore: next };
-      })
-    );
-  }, [triggerNotification]);
+      if (target.completed) {
+        await saveTaskToFirestore(
+          currentUser.uid,
+          { ...target, completed: false },
+          teacherEmail || undefined
+        );
+        cuteSound.playCutePop();
+      } else {
+        setEvidenceTarget({
+          type: 'task',
+          id: target.id,
+          title: target.title,
+          category: target.category,
+          pointsValue: target.pointsValue || 5,
+          existingEvidence: target.evidence,
+        });
+        setIsEvidenceModalOpen(true);
+        cuteSound.playSparkle();
+      }
+    },
+    [
+      currentUser,
+      isMonitoringOtherStudent,
+      notifyReadOnlyMonitoring,
+      tasks,
+      teacherEmail,
+    ]
+  );
 
-  const handleScheduleTask = useCallback((task: UnscheduledTask) => {
-    const activeDateStr = formatDateKey(currentDate);
-    const startStr = '10:00';
-    const endStr = minutesToTime(timeToMinutes(startStr) + task.estimatedMinutes);
+  const handleDeleteTask = useCallback(
+    async (taskId: string) => {
+      if (!currentUser || isMonitoringOtherStudent) {
+        if (isMonitoringOtherStudent) notifyReadOnlyMonitoring();
+        return;
+      }
+      await deleteTaskFromFirestore(currentUser.uid, taskId);
+    },
+    [currentUser, isMonitoringOtherStudent, notifyReadOnlyMonitoring]
+  );
 
-    setEventToEdit(null);
-    setSlotDate(activeDateStr);
-    setSlotTime(startStr);
+  const handleToggleTaskReminder = useCallback(
+    async (taskId: string) => {
+      if (!currentUser || isMonitoringOtherStudent) return;
+      const target = tasks.find((t) => t.id === taskId);
+      if (!target) return;
+      const current = target.reminderMinutesBefore;
+      const next = !current ? 15 : current === 15 ? 30 : current === 30 ? 60 : undefined;
 
-    const newEvent: CalendarEvent = {
-      id: `evt-${Date.now()}`,
-      title: task.title,
-      description: task.description,
-      category: task.category,
-      date: activeDateStr,
-      startTime: startStr,
-      endTime: endStr,
-      isCompleted: false,
-      priority: task.priority,
-      sourceTaskId: task.id,
-      reminders: task.reminderMinutesBefore
-        ? [{ id: `rem-${Date.now()}`, minutesBefore: task.reminderMinutesBefore, label: `${task.reminderMinutesBefore}m before 💖` }]
-        : [{ id: `rem-${Date.now()}`, minutesBefore: 15, label: '15m before 💖' }],
-    };
+      await saveTaskToFirestore(
+        currentUser.uid,
+        { ...target, reminderMinutesBefore: next },
+        teacherEmail || undefined
+      );
 
-    setEventToEdit(newEvent);
-    setIsEventModalOpen(true);
-  }, [currentDate]);
+      if (next) {
+        cuteSound.playSparkle();
+        triggerNotification({
+          title: `Reminder Set for "${target.title}" 🎀`,
+          message: `We'll remind you ${next} minutes before scheduling ✨`,
+          type: 'task_reminder',
+          taskId: target.id,
+        });
+      } else {
+        cuteSound.playCutePop();
+      }
+    },
+    [currentUser, isMonitoringOtherStudent, tasks, teacherEmail, triggerNotification]
+  );
+
+  const handleScheduleTask = useCallback(
+    (task: UnscheduledTask) => {
+      if (isMonitoringOtherStudent) {
+        notifyReadOnlyMonitoring();
+        return;
+      }
+      const activeDateStr = formatDateKey(currentDate);
+      const startStr = '10:00';
+      const endStr = minutesToTime(timeToMinutes(startStr) + task.estimatedMinutes);
+
+      setSlotDate(activeDateStr);
+      setSlotTime(startStr);
+
+      const newEvent: CalendarEvent = {
+        id: `evt_${Date.now()}`,
+        title: task.title,
+        description: task.description,
+        category: task.category,
+        date: activeDateStr,
+        startTime: startStr,
+        endTime: endStr,
+        isCompleted: false,
+        priority: task.priority,
+        sourceTaskId: task.id,
+        reminders: task.reminderMinutesBefore
+          ? [
+              {
+                id: `rem_${Date.now()}`,
+                minutesBefore: task.reminderMinutesBefore,
+                label: `${task.reminderMinutesBefore}m before 💖`,
+              },
+            ]
+          : [
+              {
+                id: `rem_${Date.now()}`,
+                minutesBefore: 15,
+                label: '15m before 💖',
+              },
+            ],
+      };
+
+      setEventToEdit(newEvent);
+      setIsEventModalOpen(true);
+    },
+    [currentDate, isMonitoringOtherStudent, notifyReadOnlyMonitoring]
+  );
 
   // Focus Mode Trigger
   const handleStartFocus = useCallback((event?: CalendarEvent) => {
@@ -753,22 +994,62 @@ export default function App() {
     setIsFocusModalOpen(true);
   }, []);
 
-  // Settings & Reset
-  const handleResetData = useCallback(() => {
-    setEvents(INITIAL_EVENTS);
-    setTasks(INITIAL_TASKS);
+  // Student Profile & Teacher Link Updates
+  const handleUpdateStudentName = useCallback(
+    async (newName: string) => {
+      if (!currentUser) return;
+      setStudentName(newName);
+      await syncUserProfileToFirestore(
+        currentUser,
+        streakData,
+        newName,
+        teacherEmail || undefined
+      );
+    },
+    [currentUser, streakData, teacherEmail]
+  );
+
+  const handleUpdateTeacherEmail = useCallback(
+    async (newTeacherEmail: string) => {
+      if (!currentUser) return;
+      const cleaned = newTeacherEmail.trim().toLowerCase();
+      setTeacherEmail(cleaned);
+      await updateAssignedTeacherEmail(
+        currentUser,
+        cleaned,
+        events,
+        tasks,
+        streakData,
+        studentName
+      );
+    },
+    [currentUser, events, tasks, streakData, studentName]
+  );
+
+  // Settings Reset & Import
+  const handleResetData = useCallback(async () => {
+    if (!currentUser || isMonitoringOtherStudent) return;
+    await Promise.all([
+      ...events.map((ev) => deleteEventFromFirestore(currentUser.uid, ev.id)),
+      ...tasks.map((t) => deleteTaskFromFirestore(currentUser.uid, t.id)),
+    ]);
     setNotifications(INITIAL_NOTIFICATIONS);
-    localStorage.removeItem(EVENTS_STORAGE_KEY);
-    localStorage.removeItem(TASKS_STORAGE_KEY);
     localStorage.removeItem(NOTIFS_STORAGE_KEY);
-  }, []);
+  }, [currentUser, isMonitoringOtherStudent, events, tasks]);
 
   const handleImportJson = useCallback(
-    (data: { events: CalendarEvent[]; tasks: UnscheduledTask[] }) => {
-      setEvents(data.events);
-      setTasks(data.tasks);
+    async (data: { events: CalendarEvent[]; tasks: UnscheduledTask[] }) => {
+      if (!currentUser || isMonitoringOtherStudent) return;
+      await Promise.all([
+        ...data.events.map((ev) =>
+          saveEventToFirestore(currentUser.uid, ev, teacherEmail || undefined)
+        ),
+        ...data.tasks.map((t) =>
+          saveTaskToFirestore(currentUser.uid, t, teacherEmail || undefined)
+        ),
+      ]);
     },
-    []
+    [currentUser, isMonitoringOtherStudent, teacherEmail]
   );
 
   // Global Keyboard Navigation
@@ -783,9 +1064,9 @@ export default function App() {
         isFocusModalOpen ||
         isSettingsOpen ||
         isNotificationCenterOpen ||
-        isCycleModalOpen ||
         isCalmModalOpen ||
-        isTaskInboxOpen
+        isTaskInboxOpen ||
+        isTeacherMonitorOpen
       ) {
         if (e.key === 'Escape') {
           setIsEventModalOpen(false);
@@ -793,9 +1074,9 @@ export default function App() {
           setIsShortcutsOpen(false);
           setIsSettingsOpen(false);
           setIsNotificationCenterOpen(false);
-          setIsCycleModalOpen(false);
           setIsCalmModalOpen(false);
           setIsTaskInboxOpen(false);
+          setIsTeacherMonitorOpen(false);
         }
         return;
       }
@@ -818,12 +1099,6 @@ export default function App() {
           break;
         case 'v':
           setCurrentView('insights');
-          break;
-        case 'c':
-          e.preventDefault();
-          if (isCycleTrackingEnabled) {
-            setIsCycleModalOpen(true);
-          }
           break;
         case 's':
         case 'o':
@@ -850,11 +1125,14 @@ export default function App() {
           e.preventDefault();
           setIsShortcutsOpen(true);
           break;
-        case '/':
+        case '/': {
           e.preventDefault();
-          const searchInput = document.querySelector('input[type="text"]') as HTMLInputElement;
+          const searchInput = document.querySelector(
+            'input[type="text"]'
+          ) as HTMLInputElement;
           if (searchInput) searchInput.focus();
           break;
+        }
       }
     };
 
@@ -869,18 +1147,20 @@ export default function App() {
     isFocusModalOpen,
     isSettingsOpen,
     isNotificationCenterOpen,
-    isCycleModalOpen,
     isCalmModalOpen,
     isTaskInboxOpen,
     isThemeModalOpen,
-    isCycleTrackingEnabled,
+    isTeacherMonitorOpen,
   ]);
 
-  // Filter upcoming events with reminders for today
   const activeDateKey = formatDateKey(currentDate);
   const upcomingEventsWithReminders = useMemo(() => {
     return events.filter(
-      (ev) => ev.date === activeDateKey && ev.reminders && ev.reminders.length > 0 && !ev.isCompleted
+      (ev) =>
+        ev.date === activeDateKey &&
+        ev.reminders &&
+        ev.reminders.length > 0 &&
+        !ev.isCompleted
     );
   }, [events, activeDateKey]);
 
@@ -893,6 +1173,42 @@ export default function App() {
   }, [notifications]);
 
   const activeThemeConfig = THEME_CONFIGS[currentTheme] || THEME_CONFIGS.pink;
+
+  // Derived active display identity (own vs monitored student)
+  const displayedStudentName = monitoredStudent ? monitoredStudent.displayName : studentName;
+  const displayedStudentEmail = monitoredStudent
+    ? monitoredStudent.email
+    : currentUser?.email || '';
+  const displayedStudentPhoto = monitoredStudent
+    ? monitoredStudent.photoURL
+    : currentUser?.photoURL || undefined;
+  const displayedStreakData: StudentStreakData = monitoredStudent
+    ? {
+        currentStreak: monitoredStudent.currentStreak,
+        bestStreak: monitoredStudent.bestStreak,
+        totalPoints: monitoredStudent.totalPoints,
+        lastActiveDate: monitoredStudent.lastActiveDate,
+        historyDates: monitoredStudent.historyDates || [],
+      }
+    : streakData;
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen w-screen bg-gradient-to-br from-pink-100 via-rose-50 to-fuchsia-100 flex flex-col items-center justify-center p-4 font-sans text-pink-950">
+        <div className="w-14 h-14 rounded-2xl bg-pink-500 text-white flex items-center justify-center shadow-lg animate-bounce mb-3 text-2xl">
+          📅
+        </div>
+        <h1 className="text-lg font-black">EduTrack Calendar &amp; Reward Portal</h1>
+        <p className="text-xs text-pink-700 font-medium mt-1">
+          Connecting your Gmail calendar &amp; rewards...
+        </p>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return <GmailLoginGate />;
+  }
 
   return (
     <div
@@ -912,8 +1228,6 @@ export default function App() {
         onOpenShortcuts={() => setIsShortcutsOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenNotifications={() => setIsNotificationCenterOpen(true)}
-        onOpenCycle={() => setIsCycleModalOpen(true)}
-        cycleInfo={currentCycleInfo}
         onOpenCalmSanctuary={() => setIsCalmModalOpen(true)}
         onOpenInbox={() => setIsTaskInboxOpen(true)}
         pendingTaskCount={tasks.filter((t) => !t.completed).length}
@@ -924,10 +1238,62 @@ export default function App() {
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         isFocusActive={isFocusModalOpen}
-        streakDays={streakData.currentStreak}
-        totalPoints={streakData.totalPoints}
+        streakDays={displayedStreakData.currentStreak}
+        totalPoints={displayedStreakData.totalPoints}
         onOpenTeacherMonitor={() => setIsTeacherMonitorOpen(true)}
+        isTeacherMode={isMonitoringOtherStudent}
+        userEmail={currentUser.email || undefined}
+        userName={studentName}
+        userPhotoUrl={currentUser.photoURL || undefined}
+        onSignOut={signOutUser}
       />
+
+      {/* Teacher Monitoring Banner so teacher always knows whose calendar they're viewing */}
+      {isMonitoringOtherStudent && monitoredStudent && (
+        <div className="px-4 py-2 bg-gradient-to-r from-purple-600 via-fuchsia-600 to-pink-600 text-white flex flex-wrap items-center justify-between gap-2 shrink-0 shadow-md z-20">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="p-1.5 rounded-xl bg-white/20 shrink-0">
+              <Eye className="w-4 h-4 text-white" />
+            </span>
+            {monitoredStudent.photoURL && (
+              <img
+                src={monitoredStudent.photoURL}
+                alt={monitoredStudent.displayName}
+                className="w-6 h-6 rounded-full border border-white shrink-0"
+              />
+            )}
+            <div className="text-xs min-w-0">
+              <span className="font-black">Monitoring Student Calendar: </span>
+              <span className="font-extrabold underline decoration-pink-200">
+                {monitoredStudent.displayName}
+              </span>
+              <span className="ml-1.5 font-mono text-[11px] bg-white/20 px-2 py-0.5 rounded-full">
+                {monitoredStudent.email}
+              </span>
+              <span className="ml-2 text-[11px] font-bold">
+                🔥 {monitoredStudent.currentStreak}d streak · 🏆 {monitoredStudent.totalPoints} pts
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsTeacherMonitorOpen(true)}
+              className="px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
+            >
+              <GraduationCap className="w-3.5 h-3.5" />
+              <span>Review Photo Proofs</span>
+            </button>
+            <button
+              onClick={() => setMonitoredStudent(null)}
+              className="px-3 py-1 bg-white text-purple-900 hover:bg-pink-50 rounded-lg text-xs font-extrabold flex items-center gap-1 transition-colors shadow-xs"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back to My Calendar</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 2. Main Workspace Layout */}
       <div className="flex flex-1 overflow-hidden relative">
@@ -950,22 +1316,24 @@ export default function App() {
             onToggleCategory={handleToggleCategory}
             isCollapsed={isSidebarCollapsed}
             onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            cycleSettings={cycleSettings}
-            onOpenCycle={() => setIsCycleModalOpen(true)}
             onOpenCalmSanctuary={() => setIsCalmModalOpen(true)}
             currentTheme={currentTheme}
             onOpenThemeSelector={() => setIsThemeModalOpen(true)}
             isMobileOpen={isMobileSidebarOpen}
             onCloseMobile={() => setIsMobileSidebarOpen(false)}
-            streakData={streakData}
+            streakData={displayedStreakData}
             onOpenTeacherMonitor={() => setIsTeacherMonitorOpen(true)}
-            studentName={studentName}
+            studentName={displayedStudentName}
+            userEmail={displayedStudentEmail}
+            teacherEmail={teacherEmail}
             onSelectView={setCurrentView}
           />
         )}
 
         {/* Viewport Content (with pb-16 on mobile for the mobile bottom nav bar) */}
-        <main className={`flex-1 flex flex-col h-full overflow-hidden pb-16 md:pb-0 transition-colors duration-200 ${activeThemeConfig.surfaceBg}`}>
+        <main
+          className={`flex-1 flex flex-col h-full overflow-hidden pb-16 md:pb-0 transition-colors duration-200 ${activeThemeConfig.surfaceBg}`}
+        >
           {currentView === 'week' && (
             <WeekView
               currentDate={currentDate}
@@ -976,7 +1344,6 @@ export default function App() {
               onToggleComplete={handleToggleComplete}
               onDeleteEvent={handleDeleteEvent}
               onStartFocus={handleStartFocus}
-              cycleSettings={cycleSettings}
             />
           )}
 
@@ -993,8 +1360,6 @@ export default function App() {
               onDeleteEvent={handleDeleteEvent}
               onStartFocus={handleStartFocus}
               onScheduleTask={handleScheduleTask}
-              cycleSettings={cycleSettings}
-              onOpenCycle={() => setIsCycleModalOpen(true)}
             />
           )}
 
@@ -1009,7 +1374,6 @@ export default function App() {
                 setCurrentDate(d);
                 setCurrentView('day');
               }}
-              cycleSettings={cycleSettings}
             />
           )}
 
@@ -1018,8 +1382,8 @@ export default function App() {
               currentDate={currentDate}
               events={searchedEvents}
               tasks={tasks}
-              streakData={streakData}
-              studentName={studentName}
+              streakData={displayedStreakData}
+              studentName={displayedStudentName}
               onOpenTeacherMonitor={() => setIsTeacherMonitorOpen(true)}
               onUpdateEventEvidence={handleUpdateEventEvidence}
               onUpdateTaskEvidence={handleUpdateTaskEvidence}
@@ -1027,10 +1391,7 @@ export default function App() {
           )}
 
           {currentView === 'audit' && (
-            <TimeAuditView
-              currentDate={currentDate}
-              events={searchedEvents}
-            />
+            <TimeAuditView currentDate={currentDate} events={searchedEvents} />
           )}
         </main>
       </div>
@@ -1057,7 +1418,6 @@ export default function App() {
         onClearAll={handleClearAllNotifications}
         onSnooze={handleSnooze}
         onTriggerTestReminder={handleTriggerTestReminder}
-        onTriggerCycleMorningNotification={isCycleTrackingEnabled ? handleTriggerCycleMorningNotification : undefined}
         onSelectEvent={(ev) => {
           setIsNotificationCenterOpen(false);
           handleSelectEvent(ev);
@@ -1098,19 +1458,15 @@ export default function App() {
         onImportJson={handleImportJson}
         currentTheme={currentTheme}
         onSelectTheme={setCurrentTheme}
-        isCycleTrackingEnabled={isCycleTrackingEnabled}
-        onToggleCycleTracking={(enabled) => {
-          setCycleSettings((prev) => ({
-            ...prev,
-            enabled,
-          }));
-        }}
         studentName={studentName}
-        onUpdateStudentName={setStudentName}
+        onUpdateStudentName={handleUpdateStudentName}
         onOpenTeacherMonitor={() => setIsTeacherMonitorOpen(true)}
+        userEmail={currentUser.email || undefined}
+        teacherEmail={teacherEmail}
+        onUpdateTeacherEmail={handleUpdateTeacherEmail}
+        onSignOut={signOutUser}
       />
 
-      {/* Calendar Color Theme Selector Modal */}
       <ThemeSelectorModal
         isOpen={isThemeModalOpen}
         onClose={() => setIsThemeModalOpen(false)}
@@ -1118,52 +1474,46 @@ export default function App() {
         onSelectTheme={setCurrentTheme}
       />
 
-      <CycleGlowModal
-        isOpen={isCycleModalOpen}
-        onClose={() => setIsCycleModalOpen(false)}
-        currentDate={currentDate}
-        settings={cycleSettings}
-        onUpdateSettings={setCycleSettings}
-        onTriggerMorningMessage={handleTriggerCycleMorningNotification}
-        onScheduleSelfCare={(eventData) => {
-          const newEv: CalendarEvent = {
-            ...eventData,
-            id: `evt-${Date.now()}`,
-          };
-          setEvents((prev) => [...prev, newEv]);
-        }}
-      />
-
       <CalmSanctuaryModal
         isOpen={isCalmModalOpen}
         onClose={() => setIsCalmModalOpen(false)}
         currentDate={currentDate}
-        onScheduleDeStressBlock={(eventData) => {
+        onScheduleDeStressBlock={async (eventData) => {
+          if (!currentUser || isMonitoringOtherStudent) return;
           const newEv: CalendarEvent = {
             ...eventData,
-            id: `evt-destress-${Date.now()}`,
+            id: `evt_destress_${Date.now()}`,
           };
-          setEvents((prev) => [...prev, newEv]);
+          await saveEventToFirestore(
+            currentUser.uid,
+            newEv,
+            teacherEmail || undefined
+          );
           triggerNotification({
             title: `${newEv.title} Scheduled! 🌿`,
-            message: 'Your calm sanctuary reset is locked in. Be kind to yourself today 💖',
+            message:
+              'Your calm sanctuary reset is locked in. Be kind to yourself today 💖',
             type: 'celebration',
           });
         }}
-        onAddTaskToBacklog={(title, estimatedMinutes) => {
+        onAddTaskToBacklog={async (title, estimatedMinutes) => {
+          if (!currentUser || isMonitoringOtherStudent) return;
           const newTask: UnscheduledTask = {
-            id: `task-${Date.now()}`,
+            id: `task_${Date.now()}`,
             title,
             category: 'health',
             estimatedMinutes,
             priority: 'medium',
             completed: false,
           };
-          setTasks((prev) => [newTask, ...prev]);
+          await saveTaskToFirestore(
+            currentUser.uid,
+            newTask,
+            teacherEmail || undefined
+          );
         }}
       />
 
-      {/* Task Inbox & Backlog Modal (Universal, works on mobile & desktop) */}
       <TaskInboxModal
         isOpen={isTaskInboxOpen}
         onClose={() => setIsTaskInboxOpen(false)}
@@ -1175,23 +1525,19 @@ export default function App() {
         onToggleTaskReminder={handleToggleTaskReminder}
       />
 
-      {/* 6. Mobile Bottom Navigation Bar (Visible on mobile/tablet) */}
+      {/* 6. Mobile Bottom Navigation Bar */}
       <MobileBottomNav
         currentView={currentView}
         onViewChange={(v) => {
           setCurrentView(v);
           setIsMobileSidebarOpen(false);
         }}
-        onOpenCycle={() => setIsCycleModalOpen(true)}
         onOpenCalmSanctuary={() => setIsCalmModalOpen(true)}
         onOpenInbox={() => setIsTaskInboxOpen(true)}
         onOpenSidebar={() => setIsMobileSidebarOpen(true)}
         onNewEvent={() => handleSlotClick(formatDateKey(currentDate), '09:00')}
-        cycleDay={currentCycleInfo?.cycleDay}
-        isPeriod={currentCycleInfo?.isPeriod}
-        isCycleEnabled={isCycleTrackingEnabled}
         pendingTaskCount={tasks.filter((t) => !t.completed).length}
-        streakDays={streakData.currentStreak}
+        streakDays={displayedStreakData.currentStreak}
         onOpenTeacherMonitor={() => setIsTeacherMonitorOpen(true)}
       />
 
@@ -1213,12 +1559,26 @@ export default function App() {
         onClose={() => setIsTeacherMonitorOpen(false)}
         events={events}
         tasks={tasks}
-        streakData={streakData}
-        studentName={studentName}
+        streakData={displayedStreakData}
+        studentName={displayedStudentName}
+        studentEmail={displayedStudentEmail}
+        studentPhotoUrl={displayedStudentPhoto}
+        monitoredStudents={monitoredStudents}
+        activeStudentUid={activeTargetUid}
+        currentUserUid={currentUser.uid}
+        currentUserEmail={currentUser.email || undefined}
+        teacherEmailLink={teacherEmail}
+        onLinkTeacherEmail={handleUpdateTeacherEmail}
+        onSelectStudentToMonitor={(stu) => setMonitoredStudent(stu)}
         onUpdateEventEvidence={handleUpdateEventEvidence}
         onUpdateTaskEvidence={handleUpdateTaskEvidence}
+        onSwitchToStudentView={() => setIsTeacherMonitorOpen(false)}
         onOpenWeeklyInsights={() => setCurrentView('insights')}
       />
+
+      {/* 9. Direct User Feedback Chat Box -> Creator Admin */}
+      <FeedbackChatBox currentUser={currentUser} />
     </div>
   );
 }
+

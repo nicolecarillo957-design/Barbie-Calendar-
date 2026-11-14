@@ -25,12 +25,11 @@ export interface AppNotification {
   title: string;
   message: string;
   timestamp: string; // ISO or human string
-  type: 'event_reminder' | 'task_reminder' | 'test' | 'celebration' | 'cycle_morning';
+  type: 'event_reminder' | 'task_reminder' | 'test' | 'celebration';
   eventId?: string;
   taskId?: string;
   isRead: boolean;
   snoozedUntil?: string;
-  cyclePhase?: CyclePhase;
 }
 
 export interface TaskEvidence {
@@ -114,44 +113,33 @@ export interface FocusSessionState {
   distractionNotes: string[];
 }
 
-export type CyclePhase = 'menstrual' | 'follicular' | 'ovulatory' | 'luteal';
-
-export interface CycleSettings {
-  enabled: boolean;
-  lastPeriodStartDate: string; // YYYY-MM-DD
-  cycleLengthDays: number; // usually 28
-  periodDurationDays: number; // usually 5
-  dailyMorningNotificationEnabled: boolean;
-  morningNotificationTime?: string; // e.g. "08:00"
+export interface UserProfileDoc {
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL?: string;
+  teacherEmail?: string;
+  currentStreak: number;
+  bestStreak: number;
+  totalPoints: number;
+  lastActiveDate?: string;
+  historyDates: string[];
 }
 
-export interface CyclePhaseInfo {
-  phase: CyclePhase;
-  phaseName: string;
-  seasonName: string; // "Winter", "Spring", "Summer", "Autumn"
-  icon: string;
-  cycleDay: number;
-  cycleLength: number;
-  isPeriod: boolean;
-  isOvulation: boolean;
-  isFertile: boolean;
-  daysUntilNextPeriod: number;
-  nextPeriodDate: string; // YYYY-MM-DD
-  energyLevel: string; // e.g. "Gentle & Restorative", "Rising & Vibrant", "Peak & Magnetic", "Inward & Focused"
-  hormones: string;
-  whatToDoWork: string;
-  whatToDoMovement: string;
-  whatToDoNutrition: string;
-  whatToDoSelfCare: string;
-  affirmation: string;
+export type FeedbackCategory = 'feedback' | 'idea' | 'bug' | 'praise';
+
+export interface FeedbackMessage {
+  id: string;
+  senderUid: string;
+  senderName: string;
+  senderEmail: string;
+  senderPhotoUrl?: string;
+  recipientEmail: string;
+  category: FeedbackCategory;
+  text: string;
+  replyText?: string;
+  replyByEmail?: string;
+  createdAtMs?: number;
 }
 
-export interface DayCycleStatus {
-  date: string;
-  isPeriod: boolean;
-  isNextPeriodPredicted: boolean;
-  isOvulation: boolean;
-  phase: CyclePhase;
-  cycleDay: number;
-}
 

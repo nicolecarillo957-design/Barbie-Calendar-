@@ -1,0 +1,403 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Signed-in Gmail user profile, student/teacher monitoring link, and study streak summary.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the user."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 200,
+          "description": "Verified Gmail address of the signed-in user."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Display name of the student or teacher."
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Profile avatar URL from Google Auth."
+        },
+        "teacherEmail": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Gmail address of the teacher authorized to monitor this student's calendar."
+        },
+        "currentStreak": {
+          "type": "integer",
+          "description": "Current consecutive days of verified task completion."
+        },
+        "bestStreak": {
+          "type": "integer",
+          "description": "Best consecutive streak achieved."
+        },
+        "totalPoints": {
+          "type": "integer",
+          "description": "Cumulative points earned across completed tasks."
+        },
+        "lastActiveDate": {
+          "type": "string",
+          "maxLength": 20,
+          "description": "YYYY-MM-DD of most recent task completion."
+        },
+        "historyDates": {
+          "type": "array",
+          "description": "Bounded list of YYYY-MM-DD dates with completed tasks."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when profile was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when profile was last updated."
+        }
+      },
+      "required": [
+        "uid",
+        "email",
+        "displayName",
+        "currentStreak",
+        "bestStreak",
+        "totalPoints",
+        "historyDates",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "CalendarEventDoc": {
+      "title": "CalendarEventDoc",
+      "description": "A scheduled calendar timebox block with optional completion picture evidence.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Event document ID."
+        },
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of the student who owns this calendar event."
+        },
+        "teacherEmail": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Gmail of the student's assigned teacher for direct query authorization."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Title of the calendar event."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Optional event notes."
+        },
+        "category": {
+          "type": "string",
+          "enum": ["deep_work", "meetings", "planning", "health", "personal", "admin"],
+          "description": "Event category."
+        },
+        "date": {
+          "type": "string",
+          "maxLength": 20,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Scheduled date in YYYY-MM-DD format."
+        },
+        "startTime": {
+          "type": "string",
+          "maxLength": 10,
+          "description": "Start time in HH:mm format."
+        },
+        "endTime": {
+          "type": "string",
+          "maxLength": 10,
+          "description": "End time in HH:mm format."
+        },
+        "isCompleted": {
+          "type": "boolean",
+          "description": "Completion state."
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["low", "medium", "high"],
+          "description": "Priority level."
+        },
+        "location": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Optional location."
+        },
+        "meetingUrl": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Optional meeting link."
+        },
+        "pointsValue": {
+          "type": "integer",
+          "description": "Points value (5 or 10)."
+        },
+        "subtasks": {
+          "type": "array",
+          "description": "Bounded list of subtasks."
+        },
+        "reminders": {
+          "type": "array",
+          "description": "Bounded list of reminder settings."
+        },
+        "evidence": {
+          "type": "object",
+          "description": "Completion picture evidence, timestamp, and teacher verification."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": [
+        "id",
+        "ownerUid",
+        "title",
+        "category",
+        "date",
+        "startTime",
+        "endTime",
+        "isCompleted",
+        "priority",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "UnscheduledTaskDoc": {
+      "title": "UnscheduledTaskDoc",
+      "description": "An unscheduled backlog task with optional completion evidence.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Task document ID."
+        },
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of the student who owns this task."
+        },
+        "teacherEmail": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Gmail of the student's assigned teacher."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Task title."
+        },
+        "category": {
+          "type": "string",
+          "enum": ["deep_work", "meetings", "planning", "health", "personal", "admin"],
+          "description": "Task category."
+        },
+        "estimatedMinutes": {
+          "type": "integer",
+          "description": "Estimated duration in minutes."
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["low", "medium", "high"],
+          "description": "Priority level."
+        },
+        "completed": {
+          "type": "boolean",
+          "description": "Completion state."
+        },
+        "dueDate": {
+          "type": "string",
+          "maxLength": 20,
+          "description": "Optional due date."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Optional notes."
+        },
+        "reminderMinutesBefore": {
+          "type": "integer",
+          "description": "Optional reminder offset."
+        },
+        "pointsValue": {
+          "type": "integer",
+          "description": "Points value."
+        },
+        "evidence": {
+          "type": "object",
+          "description": "Completion picture evidence and teacher verification."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": [
+        "id",
+        "ownerUid",
+        "title",
+        "category",
+        "estimatedMinutes",
+        "priority",
+        "completed",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "FeedbackMessageDoc": {
+      "title": "FeedbackMessageDoc",
+      "description": "User chat and feedback message sent to the app creator.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Message document ID."
+        },
+        "senderUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of the signed-in sender."
+        },
+        "senderName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Display name of the sender."
+        },
+        "senderEmail": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 200,
+          "description": "Verified Gmail of the sender."
+        },
+        "senderPhotoUrl": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Avatar URL of the sender."
+        },
+        "recipientEmail": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 200,
+          "description": "Creator email receiving the feedback."
+        },
+        "category": {
+          "type": "string",
+          "enum": ["feedback", "idea", "bug", "praise"],
+          "description": "Feedback category."
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "description": "Feedback or chat message body."
+        },
+        "replyText": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Optional reply from the app creator."
+        },
+        "replyByEmail": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Creator email who replied."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": [
+        "id",
+        "senderUid",
+        "senderName",
+        "senderEmail",
+        "recipientEmail",
+        "category",
+        "text",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserProfile"
+      },
+      "description": "Stores signed-in user profiles, assigned teacher email, and study streak metrics."
+    },
+    "/users/{userId}/events/{eventId}": {
+      "schema": {
+        "$ref": "#/entities/CalendarEventDoc"
+      },
+      "description": "Stores calendar timebox events and photo completion proofs for a specific student."
+    },
+    "/users/{userId}/tasks/{taskId}": {
+      "schema": {
+        "$ref": "#/entities/UnscheduledTaskDoc"
+      },
+      "description": "Stores backlog tasks and photo completion proofs for a specific student."
+    },
+    "/feedback_messages/{messageId}": {
+      "schema": {
+        "$ref": "#/entities/FeedbackMessageDoc"
+      },
+      "description": "Stores user thoughts, feedback, and chat messages directed to the app creator."
+    }
+  }
+}

@@ -1,5 +1,11 @@
 import React, { useState } from 'react';
-import { CalendarEvent, StudentStreakData, TaskEvidence, UnscheduledTask } from '../types/calendar';
+import {
+  CalendarEvent,
+  StudentStreakData,
+  TaskEvidence,
+  UnscheduledTask,
+  UserProfileDoc,
+} from '../types/calendar';
 import { cuteSound } from '../utils/cuteSound';
 import { 
   GraduationCap, 
@@ -18,7 +24,11 @@ import {
   Sparkles,
   Download,
   BarChart3,
-  FileText
+  FileText,
+  Users,
+  Mail,
+  Eye,
+  User as UserIcon
 } from 'lucide-react';
 import { WeeklySummaryModal } from './WeeklySummaryModal';
 
@@ -29,6 +39,15 @@ interface TeacherMonitorModalProps {
   tasks: UnscheduledTask[];
   streakData: StudentStreakData;
   studentName: string;
+  studentEmail?: string;
+  studentPhotoUrl?: string;
+  monitoredStudents?: UserProfileDoc[];
+  activeStudentUid?: string;
+  currentUserUid?: string;
+  currentUserEmail?: string;
+  teacherEmailLink?: string;
+  onLinkTeacherEmail?: (email: string) => Promise<void>;
+  onSelectStudentToMonitor?: (student: UserProfileDoc | null) => void;
   onUpdateEventEvidence?: (eventId: string, updatedEvidence: TaskEvidence) => void;
   onUpdateTaskEvidence?: (taskId: string, updatedEvidence: TaskEvidence) => void;
   onSwitchToStudentView?: () => void;
@@ -42,6 +61,15 @@ export const TeacherMonitorModal: React.FC<TeacherMonitorModalProps> = ({
   tasks,
   streakData,
   studentName,
+  studentEmail,
+  studentPhotoUrl,
+  monitoredStudents = [],
+  activeStudentUid,
+  currentUserUid,
+  currentUserEmail,
+  teacherEmailLink = '',
+  onLinkTeacherEmail,
+  onSelectStudentToMonitor,
   onUpdateEventEvidence,
   onUpdateTaskEvidence,
   onSwitchToStudentView,
@@ -52,8 +80,17 @@ export const TeacherMonitorModal: React.FC<TeacherMonitorModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [teacherFeedbackInput, setTeacherFeedbackInput] = useState<{ [id: string]: string }>({});
   const [isWeeklySummaryOpen, setIsWeeklySummaryOpen] = useState(false);
+  const [localTeacherEmail, setLocalTeacherEmail] = useState(teacherEmailLink);
+  const [isLinkingTeacher, setIsLinkingTeacher] = useState(false);
+  const [linkStatusMsg, setLinkStatusMsg] = useState('');
+
+  React.useEffect(() => {
+    setLocalTeacherEmail(teacherEmailLink);
+  }, [teacherEmailLink]);
 
   if (!isOpen) return null;
+
+  const isViewingAnotherStudent = Boolean(activeStudentUid && currentUserUid && activeStudentUid !== currentUserUid);
 
   // Gather all completed items with evidence
   const eventSubmissions = events
@@ -209,18 +246,153 @@ export const TeacherMonitorModal: React.FC<TeacherMonitorModalProps> = ({
           </div>
         </div>
 
-        {/* Top Summary Banner */}
-        <div className="p-4 sm:p-5 bg-gradient-to-br from-pink-50 via-rose-50/70 to-pink-100/50 border-b border-pink-200 shrink-0">
+        {/* Top Summary Banner & Student Switcher */}
+        <div className="p-4 sm:p-5 bg-gradient-to-br from-pink-50 via-rose-50/70 to-pink-100/50 border-b border-pink-200 shrink-0 space-y-3">
+          {/* Student Directory Picker for Teachers & Teacher Email Linking */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {/* Switch Monitored Student */}
+            <div className="p-3 bg-white/95 rounded-2xl border border-pink-200 shadow-2xs space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-black text-pink-950 uppercase tracking-wider flex items-center gap-1.5">
+                  <Users className="w-3.5 h-3.5 text-pink-600" />
+                  <span>Students Linked to You ({monitoredStudents.length})</span>
+                </span>
+                {isViewingAnotherStudent && onSelectStudentToMonitor && (
+                  <button
+                    type="button"
+                    onClick={() => onSelectStudentToMonitor(null)}
+                    className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-pink-100 hover:bg-pink-200 text-pink-800"
+                  >
+                    Return to My Calendar
+                  </button>
+                )}
+              </div>
+
+              {monitoredStudents.length === 0 ? (
+                <p className="text-[11px] text-pink-700 leading-snug">
+                  No students have linked your Gmail ({currentUserEmail || 'your email'}) yet. Have a student enter your Gmail in the box on the right to share their calendar!
+                </p>
+              ) : (
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                  {onSelectStudentToMonitor && (
+                    <button
+                      type="button"
+                      onClick={() => onSelectStudentToMonitor(null)}
+                      className={`px-2.5 py-1.5 rounded-xl border text-left transition-all shrink-0 flex items-center gap-1.5 ${
+                        !isViewingAnotherStudent
+                          ? 'bg-pink-500 text-white border-pink-600 shadow-xs'
+                          : 'bg-pink-50 text-pink-900 border-pink-200 hover:bg-pink-100'
+                      }`}
+                    >
+                      <UserIcon className="w-3.5 h-3.5 shrink-0" />
+                      <div className="text-[10px] leading-tight">
+                        <div className="font-black">My Calendar</div>
+                        <div className="opacity-80 truncate max-w-[110px]">{currentUserEmail}</div>
+                      </div>
+                    </button>
+                  )}
+
+                  {monitoredStudents.map((stu) => {
+                    const isSelected = activeStudentUid === stu.uid;
+                    return (
+                      <button
+                        key={stu.uid}
+                        type="button"
+                        onClick={() => onSelectStudentToMonitor && onSelectStudentToMonitor(stu)}
+                        className={`px-2.5 py-1.5 rounded-xl border text-left transition-all shrink-0 flex items-center gap-2 ${
+                          isSelected
+                            ? 'bg-purple-600 text-white border-purple-700 shadow-xs'
+                            : 'bg-white text-pink-950 border-pink-200 hover:bg-pink-50'
+                        }`}
+                      >
+                        {stu.photoURL ? (
+                          <img src={stu.photoURL} alt={stu.displayName} className="w-6 h-6 rounded-full border border-white/50 shrink-0" />
+                        ) : (
+                          <span className="w-6 h-6 rounded-full bg-pink-200 text-pink-800 text-[10px] font-black flex items-center justify-center shrink-0">
+                            {(stu.displayName || stu.email)[0]?.toUpperCase()}
+                          </span>
+                        )}
+                        <div className="text-[10px] leading-tight">
+                          <div className="font-black truncate max-w-[120px]">{stu.displayName}</div>
+                          <div className="opacity-80 truncate max-w-[130px] font-mono">{stu.email}</div>
+                        </div>
+                        <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-full ${
+                          isSelected ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-900'
+                        }`}>
+                          🔥{stu.currentStreak} · {stu.totalPoints}p
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Link Teacher Email Box */}
+            {onLinkTeacherEmail && (
+              <div className="p-3 bg-white/95 rounded-2xl border border-amber-200 shadow-2xs space-y-1.5">
+                <span className="text-[11px] font-black text-amber-950 uppercase tracking-wider flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Student Setting: Authorize Teacher Gmail</span>
+                </span>
+                <p className="text-[11px] text-amber-800 leading-snug">
+                  Enter your teacher&apos;s Gmail so they can monitor your calendar tasks &amp; picture proofs.
+                </p>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="email"
+                    value={localTeacherEmail}
+                    onChange={(e) => setLocalTeacherEmail(e.target.value)}
+                    placeholder="teacher@gmail.com"
+                    className="flex-1 text-xs px-2.5 py-1.5 bg-amber-50/40 border border-amber-200 rounded-xl text-pink-950 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                  />
+                  <button
+                    type="button"
+                    disabled={isLinkingTeacher}
+                    onClick={async () => {
+                      setIsLinkingTeacher(true);
+                      setLinkStatusMsg('');
+                      try {
+                        await onLinkTeacherEmail(localTeacherEmail.trim().toLowerCase());
+                        setLinkStatusMsg('Linked! Teacher can now monitor your calendar.');
+                        cuteSound.playSparkle();
+                      } finally {
+                        setIsLinkingTeacher(false);
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-xs font-extrabold rounded-xl shadow-2xs shrink-0"
+                  >
+                    {isLinkingTeacher ? 'Saving...' : 'Save Teacher'}
+                  </button>
+                </div>
+                {linkStatusMsg && (
+                  <p className="text-[10px] font-bold text-emerald-700">{linkStatusMsg}</p>
+                )}
+              </div>
+            )}
+          </div>
+
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {/* Student Name */}
-            <div className="p-3 bg-white/90 rounded-2xl border border-pink-200 shadow-2xs">
-              <span className="text-[10px] uppercase font-bold text-pink-500 block">
-                Student
-              </span>
-              <span className="text-sm sm:text-base font-black text-pink-950 truncate block">
-                {studentName || 'Student'}
-              </span>
-              <span className="text-[10px] text-pink-600 font-medium">Monitoring active</span>
+            {/* Student Name & Gmail Identity */}
+            <div className="p-3 bg-white/90 rounded-2xl border border-pink-200 shadow-2xs flex items-center gap-2.5">
+              {studentPhotoUrl ? (
+                <img src={studentPhotoUrl} alt={studentName} className="w-9 h-9 rounded-full border border-pink-300 shrink-0" />
+              ) : (
+                <div className="w-9 h-9 rounded-full bg-pink-100 text-pink-600 flex items-center justify-center shrink-0 font-black">
+                  {(studentName || 'S')[0]?.toUpperCase()}
+                </div>
+              )}
+              <div className="min-w-0">
+                <span className="text-[10px] uppercase font-bold text-pink-500 block">
+                  {isViewingAnotherStudent ? 'Monitoring Student' : 'Active Calendar'}
+                </span>
+                <span className="text-sm font-black text-pink-950 truncate block">
+                  {studentName || 'Student'}
+                </span>
+                <span className="text-[10px] text-pink-600 font-mono truncate block">
+                  {studentEmail || 'Gmail verified'}
+                </span>
+              </div>
             </div>
 
             {/* Streak */}
@@ -268,22 +440,35 @@ export const TeacherMonitorModal: React.FC<TeacherMonitorModalProps> = ({
             </div>
           </div>
 
-          {/* Parent Report Summary Action Strip */}
-          <div className="mt-3 pt-3 border-t border-pink-200/80 flex items-center justify-between flex-wrap gap-2">
+          {/* Parent Report Summary & Live Calendar Monitor Action Strip */}
+          <div className="pt-2 border-t border-pink-200/80 flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-1.5 text-xs text-pink-800 font-medium">
-              <Sparkles className="w-4 h-4 text-pink-500" />
-              <span>Generate an official progress summary with streaks and points to share with parents:</span>
+              <Sparkles className="w-4 h-4 text-pink-500 shrink-0" />
+              <span>
+                Currently monitoring: <strong>{studentName}</strong> ({studentEmail || currentUserEmail})
+              </span>
             </div>
-            <button
-              onClick={() => {
-                cuteSound.playSparkle();
-                setIsWeeklySummaryOpen(true);
-              }}
-              className="px-3.5 py-1.5 bg-white hover:bg-pink-100/70 border border-pink-300 text-pink-900 rounded-xl text-xs font-extrabold shadow-2xs flex items-center gap-1.5 transition-colors"
-            >
-              <FileText className="w-3.5 h-3.5 text-pink-600" />
-              <span>Weekly Summary for Parents 📋</span>
-            </button>
+            <div className="flex items-center gap-2">
+              {isViewingAnotherStudent && (
+                <button
+                  onClick={onClose}
+                  className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-extrabold shadow-2xs flex items-center gap-1.5 transition-colors"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>View Student&apos;s Live Calendar</span>
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  cuteSound.playSparkle();
+                  setIsWeeklySummaryOpen(true);
+                }}
+                className="px-3.5 py-1.5 bg-white hover:bg-pink-100/70 border border-pink-300 text-pink-900 rounded-xl text-xs font-extrabold shadow-2xs flex items-center gap-1.5 transition-colors"
+              >
+                <FileText className="w-3.5 h-3.5 text-pink-600" />
+                <span>Weekly Summary for Parents 📋</span>
+              </button>
+            </div>
           </div>
         </div>
 

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { 
   CalendarEvent, 
-  CycleSettings,
   EventCategory, 
   UnscheduledTask,
   StudentStreakData,
@@ -17,10 +16,6 @@ import {
   isSameDay, 
   parseDateKey 
 } from '../utils/dateUtils';
-import { 
-  getCurrentCycleInfo, 
-  getDayCycleStatus 
-} from '../utils/cycleUtils';
 import { 
   Check, 
   ChevronLeft, 
@@ -54,8 +49,6 @@ interface SidebarProps {
   onToggleCategory: (cat: EventCategory) => void;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
-  cycleSettings?: CycleSettings;
-  onOpenCycle?: () => void;
   onOpenCalmSanctuary?: () => void;
   currentTheme?: CalendarThemeId;
   onOpenThemeSelector?: () => void;
@@ -64,6 +57,8 @@ interface SidebarProps {
   streakData?: StudentStreakData;
   onOpenTeacherMonitor?: () => void;
   studentName?: string;
+  userEmail?: string;
+  teacherEmail?: string;
   onSelectView?: (view: CalendarViewType) => void;
 }
 
@@ -80,8 +75,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   selectedCategories,
   onToggleCategory,
   isCollapsed,
-  cycleSettings,
-  onOpenCycle,
   onOpenCalmSanctuary,
   currentTheme = 'pink',
   onOpenThemeSelector,
@@ -90,6 +83,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   streakData,
   onOpenTeacherMonitor,
   studentName = 'Student',
+  userEmail,
+  teacherEmail,
   onSelectView,
 }) => {
   // Mobile drawer tab state: 'inbox' (show tasks first!), 'calendar', 'all'
@@ -180,7 +175,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="lg:hidden p-3 bg-gradient-to-r from-pink-200 via-rose-100 to-pink-200 border-b border-pink-300 space-y-2 shrink-0">
           <div className="flex items-center justify-between">
             <span className="text-xs font-black text-pink-950 flex items-center gap-1.5">
-              <span>Barbie Planner & Tasks</span>
+              <span>EduTrack Planner &amp; Tasks</span>
               <span>💖</span>
             </span>
             <button
@@ -272,9 +267,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             const isToday = isSameDay(d, new Date());
             const isCurrentMonth = d.getMonth() === viewedMonth.getMonth();
             const hasEvents = eventDateSet.has(dateStr);
-            const cycleStatus = (cycleSettings && cycleSettings.enabled !== false) 
-              ? getDayCycleStatus(dateStr, cycleSettings) 
-              : null;
 
             return (
               <button
@@ -288,26 +280,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     ? 'bg-pink-500 text-white font-bold shadow-xs'
                     : isToday
                     ? 'border-2 border-pink-500 text-pink-600 font-bold bg-pink-100/60'
-                    : cycleStatus?.isPeriod
-                    ? 'bg-rose-100/90 text-rose-800 font-bold border border-rose-300'
                     : isCurrentMonth
                     ? 'text-pink-950 hover:bg-pink-100/80 font-medium'
                     : 'text-pink-300 hover:text-pink-400'
                 }`}
-                title={
-                  cycleStatus?.isPeriod
-                    ? `Period (Day ${cycleStatus.cycleDay}) 🩸`
-                    : cycleStatus?.isOvulation
-                    ? 'Ovulation Day ✨'
-                    : undefined
-                }
               >
                 <span>{d.getDate()}</span>
                 {hasEvents && !isSelected && (
                   <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-pink-500" />
-                )}
-                {cycleStatus?.isPeriod && !isSelected && (
-                  <span className="absolute -top-0.5 -right-0.5 text-[7px] leading-none">🩸</span>
                 )}
               </button>
             );
@@ -360,50 +340,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             )}
           </div>
-        </div>
-      )}
-      {cycleSettings && cycleSettings.enabled !== false && (
-        <div className="p-3 border-b border-pink-200/80 bg-gradient-to-br from-pink-50 via-rose-50/60 to-pink-100/40">
-          {(() => {
-            const cycleInfo = getCurrentCycleInfo(currentDate, cycleSettings);
-            return (
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-sm">{cycleInfo.icon}</span>
-                    <span className="text-xs font-black text-pink-950 uppercase tracking-tight">
-                      Cycle Glow
-                    </span>
-                    <span className="text-[10px] font-bold text-pink-700">· {cycleInfo.phaseName}</span>
-                  </div>
-                  <span className="text-[10px] font-bold font-mono px-2 py-0.5 rounded-full bg-pink-200/90 text-pink-800">
-                    Day {cycleInfo.cycleDay}/{cycleInfo.cycleLength}
-                  </span>
-                </div>
 
-                <div className="flex items-center justify-between gap-2 mt-1">
-                  <div className="text-[11px] text-pink-700 font-medium truncate">
-                    {cycleInfo.isPeriod ? (
-                      <span className="text-rose-700 font-bold inline-flex items-center gap-1">
-                        <span>🩸</span>
-                        <span>Period Active · Rest & Reset</span>
-                      </span>
-                    ) : (
-                      <span>Next: {cycleInfo.nextPeriodDate} ({cycleInfo.daysUntilNextPeriod}d)</span>
-                    )}
-                  </div>
-
-                  <button
-                    onClick={onOpenCycle}
-                    className="shrink-0 py-1 px-2.5 bg-white/95 hover:bg-pink-100/80 border border-pink-300 rounded-lg text-[11px] font-bold text-pink-700 shadow-2xs flex items-center gap-1 transition-colors"
-                  >
-                    <Sparkles className="w-3 h-3 text-pink-500" />
-                    <span>Details</span>
-                  </button>
-                </div>
+          {userEmail && (
+            <div className="mt-2 pt-2 border-t border-amber-200/70 text-[10px] text-amber-900 space-y-0.5">
+              <div className="truncate font-bold">
+                Signed in: <span className="font-mono font-normal">{userEmail}</span>
               </div>
-            );
-          })()}
+              <div className="truncate font-bold">
+                Teacher:{' '}
+                {teacherEmail ? (
+                  <span className="font-mono font-normal text-emerald-700">{teacherEmail}</span>
+                ) : (
+                  <span className="font-normal text-amber-700">Not linked yet</span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

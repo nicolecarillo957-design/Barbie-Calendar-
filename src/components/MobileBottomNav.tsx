@@ -11,14 +11,10 @@ import {
 interface MobileBottomNavProps {
   currentView: CalendarViewType;
   onViewChange: (view: CalendarViewType) => void;
-  onOpenCycle?: () => void;
   onOpenCalmSanctuary: () => void;
   onOpenInbox: () => void;
   onOpenSidebar: () => void;
   onNewEvent: () => void;
-  cycleDay?: number;
-  isPeriod?: boolean;
-  isCycleEnabled?: boolean;
   pendingTaskCount?: number;
   streakDays?: number;
   onOpenTeacherMonitor?: () => void;
@@ -27,14 +23,10 @@ interface MobileBottomNavProps {
 export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   currentView,
   onViewChange,
-  onOpenCycle,
   onOpenCalmSanctuary,
   onOpenInbox,
   onOpenSidebar,
   onNewEvent,
-  cycleDay,
-  isPeriod,
-  isCycleEnabled = true,
   pendingTaskCount = 0,
   streakDays,
   onOpenTeacherMonitor,
@@ -114,21 +106,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
         <span className="text-[9px] mt-0.5 font-bold text-rose-600">Calm</span>
       </button>
 
-      {/* 6. Cycle Glow (Optional for boys / non-menstruating users) */}
-      {isCycleEnabled && onOpenCycle && (
-        <button
-          onClick={onOpenCycle}
-          className="flex flex-col items-center justify-center flex-1 py-1 text-pink-500 hover:text-pink-700 transition-colors"
-          title="Menstruation & Cycle Glow"
-        >
-          <span className="text-base leading-none">{isPeriod ? '🩸' : '👑'}</span>
-          <span className="text-[9px] mt-0.5 font-bold text-pink-700">
-            {cycleDay ? `D${cycleDay}` : 'Cycle'}
-          </span>
-        </button>
-      )}
-
-      {/* 7. Sidebar / Menu Drawer */}
+      {/* 6. Sidebar / Menu Drawer */}
       <button
         onClick={onOpenSidebar}
         className="flex flex-col items-center justify-center flex-1 py-1 text-pink-400 hover:text-pink-600 transition-colors"

@@ -9,7 +9,9 @@ import {
   X,
   Sliders,
   Sparkles,
-  Heart
+  Heart,
+  Mail,
+  LogOut
 } from 'lucide-react';
 import { cuteSound } from '../utils/cuteSound';
 
@@ -24,11 +26,13 @@ interface SettingsModalProps {
   onImportJson: (data: { events: CalendarEvent[]; tasks: UnscheduledTask[] }) => void;
   currentTheme?: CalendarThemeId;
   onSelectTheme?: (theme: CalendarThemeId) => void;
-  isCycleTrackingEnabled?: boolean;
-  onToggleCycleTracking?: (enabled: boolean) => void;
   studentName?: string;
   onUpdateStudentName?: (name: string) => void;
   onOpenTeacherMonitor?: () => void;
+  userEmail?: string;
+  teacherEmail?: string;
+  onUpdateTeacherEmail?: (email: string) => Promise<void>;
+  onSignOut?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -40,14 +44,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onImportJson,
   currentTheme = 'pink',
   onSelectTheme,
-  isCycleTrackingEnabled = true,
-  onToggleCycleTracking,
   studentName = 'Student',
   onUpdateStudentName,
   onOpenTeacherMonitor,
+  userEmail,
+  teacherEmail = '',
+  onUpdateTeacherEmail,
+  onSignOut,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [localStudentName, setLocalStudentName] = useState(studentName);
+  const [localTeacherEmail, setLocalTeacherEmail] = useState(teacherEmail);
+  const [savingTeacher, setSavingTeacher] = useState(false);
+  const [teacherSavedMsg, setTeacherSavedMsg] = useState(false);
+
+  React.useEffect(() => {
+    setLocalStudentName(studentName);
+  }, [studentName]);
+
+  React.useEffect(() => {
+    setLocalTeacherEmail(teacherEmail);
+  }, [teacherEmail]);
 
   if (!isOpen) return null;
 
@@ -99,10 +116,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </span>
             <div>
               <h3 className="text-sm font-extrabold text-pink-950 flex items-center gap-1.5">
-                <span>Barbie Settings & Sync</span>
+                <span>EduTrack Settings &amp; Sync</span>
                 <span>🎀</span>
               </h3>
-              <p className="text-[11px] text-pink-700 font-medium">Manage calendar export & backup</p>
+              <p className="text-[11px] text-pink-700 font-medium">Manage account, teacher sync &amp; calendar export</p>
             </div>
           </div>
           <button
@@ -196,6 +213,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
 
+            {userEmail && (
+              <div className="mt-3 p-2.5 bg-white/90 rounded-xl border border-pink-200 flex items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Mail className="w-3.5 h-3.5 text-pink-500 shrink-0" />
+                  <span className="font-bold text-pink-900 truncate">{userEmail}</span>
+                </div>
+                {onSignOut && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onSignOut();
+                    }}
+                    className="px-2.5 py-1 text-[11px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg flex items-center gap-1 shrink-0"
+                  >
+                    <LogOut className="w-3 h-3" />
+                    <span>Sign Out</span>
+                  </button>
+                )}
+              </div>
+            )}
+
             <div className="flex items-center gap-2 mt-3">
               <input
                 type="text"
@@ -218,6 +257,46 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </button>
             </div>
 
+            {onUpdateTeacherEmail && (
+              <div className="mt-3 pt-3 border-t border-amber-200/70 space-y-1.5">
+                <label className="block text-[11px] font-bold text-amber-950">
+                  Assigned Teacher's Gmail (lets your teacher monitor your calendar &amp; proofs):
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="email"
+                    value={localTeacherEmail}
+                    onChange={(e) => setLocalTeacherEmail(e.target.value)}
+                    placeholder="teacher@gmail.com"
+                    className="flex-1 text-xs px-3 py-2 bg-white border border-amber-200 rounded-xl text-pink-950 focus:outline-none focus:ring-1 focus:ring-amber-400 font-medium"
+                  />
+                  <button
+                    type="button"
+                    disabled={savingTeacher}
+                    onClick={async () => {
+                      setSavingTeacher(true);
+                      try {
+                        await onUpdateTeacherEmail(localTeacherEmail.trim().toLowerCase());
+                        cuteSound.playSparkle();
+                        setTeacherSavedMsg(true);
+                        setTimeout(() => setTeacherSavedMsg(false), 3000);
+                      } finally {
+                        setSavingTeacher(false);
+                      }
+                    }}
+                    className="px-3 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-2xs transition-colors shrink-0"
+                  >
+                    {savingTeacher ? 'Linking...' : 'Link Teacher 👩‍🏫'}
+                  </button>
+                </div>
+                {teacherSavedMsg && (
+                  <p className="text-[11px] text-emerald-700 font-bold">
+                    Teacher Gmail linked! They can now monitor your calendar and photo proofs.
+                  </p>
+                )}
+              </div>
+            )}
+
             {onOpenTeacherMonitor && (
               <button
                 type="button"
@@ -231,59 +310,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </button>
             )}
           </div>
-
-          {/* Section 0.5: Menstruation & Period Tracking (Optional / Boys Mode) */}
-          {onToggleCycleTracking && (
-            <div className="p-4 bg-pink-50/70 border border-pink-200 rounded-2xl">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="w-8 h-8 rounded-full bg-white text-rose-600 flex items-center justify-center border border-pink-300 shadow-2xs text-base">
-                    🩸
-                  </span>
-                  <div>
-                    <h4 className="text-xs font-black uppercase tracking-wider text-pink-950 flex items-center gap-1.5">
-                      <span>Menstruation & Cycle Glow Tracking</span>
-                    </h4>
-                    <p className="text-[11px] text-pink-700 font-medium">
-                      Optional feature. If boys or anyone who doesn't experience menstruation is using the app, you can turn this completely OFF to hide all period indicators, cycle pills, and notifications.
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    const next = !isCycleTrackingEnabled;
-                    onToggleCycleTracking(next);
-                    if (next) {
-                      cuteSound.playSparkle();
-                    } else {
-                      cuteSound.playCutePop();
-                    }
-                  }}
-                  className={`w-12 h-6 rounded-full transition-colors relative flex items-center px-0.5 shrink-0 ml-3 ${
-                    isCycleTrackingEnabled ? 'bg-pink-500' : 'bg-slate-300'
-                  }`}
-                  title={isCycleTrackingEnabled ? 'Turn OFF Menstruation tracking' : 'Turn ON Menstruation tracking'}
-                >
-                  <div
-                    className={`w-5 h-5 rounded-full bg-white shadow-xs transition-transform transform ${
-                      isCycleTrackingEnabled ? 'translate-x-6' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
-              </div>
-
-              <div className="mt-2.5 pt-2 border-t border-pink-200/60 flex items-center justify-between text-[11px]">
-                <span className="font-bold text-pink-900">
-                  Status: {isCycleTrackingEnabled ? '🌸 Active (Period & Cycle features visible)' : '✨ Off (Hidden from calendar, sidebar & nav)'}
-                </span>
-                <span className="text-[10px] text-pink-600 font-semibold">
-                  {isCycleTrackingEnabled ? 'Enabled' : 'Disabled'}
-                </span>
-              </div>
-            </div>
-          )}
 
           {/* Section 1: Standard iCal Export */}
           <div className="p-4 bg-pink-50/70 border border-pink-200 rounded-2xl">

@@ -87,11 +87,38 @@ export const TaskEvidenceModal: React.FC<TaskEvidenceModalProps> = ({
 
     const reader = new FileReader();
     reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setPhotoUrl(reader.result);
+      if (typeof reader.result !== 'string') return;
+      const img = new Image();
+      img.onload = () => {
+        const maxWidth = 640;
+        const scale = img.width > maxWidth ? maxWidth / img.width : 1;
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          setErrorMsg('Could not process image. Please try another photo.');
+          return;
+        }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        let compressed = canvas.toDataURL('image/jpeg', 0.65);
+        if (compressed.length > 440000) {
+          compressed = canvas.toDataURL('image/jpeg', 0.45);
+        }
+        if (compressed.length > 445000) {
+          setErrorMsg('Image is too large after compression. Please pick a smaller image.');
+          return;
+        }
+
+        setPhotoUrl(compressed);
         setErrorMsg('');
         cuteSound.playSparkle();
-      }
+      };
+      img.onerror = () => {
+        setErrorMsg('Unable to read image file. Please try another picture.');
+      };
+      img.src = reader.result;
     };
     reader.readAsDataURL(file);
   };

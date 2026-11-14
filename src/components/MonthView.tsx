@@ -1,8 +1,7 @@
 import React from 'react';
-import { CalendarEvent, CycleSettings, EventCategory } from '../types/calendar';
+import { CalendarEvent, EventCategory } from '../types/calendar';
 import { getCategoryConfig } from '../utils/categories';
 import { formatDateKey, formatFriendlyTime, isSameDay } from '../utils/dateUtils';
-import { getDayCycleStatus } from '../utils/cycleUtils';
 import { Plus } from 'lucide-react';
 
 interface MonthViewProps {
@@ -12,7 +11,6 @@ interface MonthViewProps {
   onSelectEvent: (event: CalendarEvent) => void;
   onSlotClick: (dateStr: string, timeStr: string) => void;
   onSelectDate: (date: Date) => void;
-  cycleSettings?: CycleSettings;
 }
 
 export const MonthView: React.FC<MonthViewProps> = ({
@@ -22,7 +20,6 @@ export const MonthView: React.FC<MonthViewProps> = ({
   onSelectEvent,
   onSlotClick,
   onSelectDate,
-  cycleSettings,
 }) => {
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -90,18 +87,13 @@ export const MonthView: React.FC<MonthViewProps> = ({
           const maxVisible = 3;
           const visibleEvents = dayEvents.slice(0, maxVisible);
           const overflowCount = dayEvents.length - maxVisible;
-          const cycleStatus = (cycleSettings && cycleSettings.enabled !== false) 
-            ? getDayCycleStatus(dateStr, cycleSettings) 
-            : null;
 
           return (
             <div
               key={i}
               onClick={() => onSlotClick(dateStr, '09:00')}
               className={`p-1.5 flex flex-col justify-between transition-colors overflow-hidden group hover:bg-pink-100/40 cursor-pointer ${
-                cycleStatus?.isPeriod
-                  ? 'bg-rose-50/60 text-pink-950 border-rose-200'
-                  : !isCurrentMonth
+                !isCurrentMonth
                   ? 'bg-pink-50/20 text-pink-300'
                   : 'bg-white/80 text-pink-950'
               }`}
@@ -125,37 +117,6 @@ export const MonthView: React.FC<MonthViewProps> = ({
                   >
                     {day.getDate()}
                   </button>
-
-                  {/* Period or Ovulation Badge */}
-                  {cycleStatus?.isPeriod && (
-                    <span
-                      className="px-1.5 py-0.2 rounded-full text-[9px] font-extrabold bg-rose-100 text-rose-800 border border-rose-200 shadow-2xs flex items-center gap-0.5"
-                      title={`Period (Day ${cycleStatus.cycleDay}) 🩸`}
-                    >
-                      <span>🩸</span>
-                      <span className="hidden xl:inline">Period</span>
-                    </span>
-                  )}
-
-                  {cycleStatus?.isOvulation && (
-                    <span
-                      className="px-1.5 py-0.2 rounded-full text-[9px] font-extrabold bg-fuchsia-100 text-fuchsia-800 border border-fuchsia-200 shadow-2xs flex items-center gap-0.5"
-                      title="Ovulation Day ✨"
-                    >
-                      <span>✨</span>
-                      <span className="hidden xl:inline">Ovulation</span>
-                    </span>
-                  )}
-
-                  {cycleStatus?.isNextPeriodPredicted && !cycleStatus.isPeriod && (
-                    <span
-                      className="px-1.5 py-0.2 rounded-full text-[9px] font-extrabold bg-pink-100 text-pink-800 border border-pink-200 shadow-2xs flex items-center gap-0.5"
-                      title="Next Period Predicted 🌸"
-                    >
-                      <span>🩸</span>
-                      <span className="hidden xl:inline">Next Period</span>
-                    </span>
-                  )}
                 </div>
 
                 <button

@@ -1,6 +1,6 @@
 {
-  "name": "Barbie Calendar",
-  "description": "An adorable, pink, and cutesy calendar for time management, timeboxing, and sweet reminders.",
+  "name": "EduTrack Calendar & Reward Portal",
+  "description": "Student calendar, study streaks, photo proof rewards, and teacher monitoring portal.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

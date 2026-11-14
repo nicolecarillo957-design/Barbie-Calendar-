@@ -1,0 +1,332 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: deny everything by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Global Hardened Helpers ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'nicolecarillo957@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // --- Validation Blueprints ---
+    function isValidEvidence(ev) {
+      return ev is map &&
+        ev.keys().hasAll(['id', 'photoUrl', 'completedAt', 'completedTimeFormatted', 'pointsEarned']) &&
+        ev.keys().hasOnly([
+          'id', 'photoUrl', 'completedAt', 'completedTimeFormatted',
+          'notes', 'pointsEarned', 'studentName', 'teacherVerified', 'teacherFeedback'
+        ]) &&
+        isValidId(ev.id) &&
+        ev.photoUrl is string && ev.photoUrl.size() <= 450000 &&
+        ev.completedAt is string && ev.completedAt.size() >= 1 && ev.completedAt.size() <= 64 &&
+        ev.completedTimeFormatted is string && ev.completedTimeFormatted.size() >= 1 && ev.completedTimeFormatted.size() <= 100 &&
+        ev.pointsEarned is int && ev.pointsEarned >= 0 && ev.pointsEarned <= 100 &&
+        (!('notes' in ev) || (ev.notes is string && ev.notes.size() <= 1000)) &&
+        (!('studentName' in ev) || (ev.studentName is string && ev.studentName.size() <= 120)) &&
+        (!('teacherVerified' in ev) || (ev.teacherVerified is bool)) &&
+        (!('teacherFeedback' in ev) || (ev.teacherFeedback is string && ev.teacherFeedback.size() <= 1000));
+    }
+
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll([
+          'uid', 'email', 'displayName', 'currentStreak', 'bestStreak',
+          'totalPoints', 'historyDates', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'uid', 'email', 'displayName', 'photoURL', 'teacherEmail',
+          'currentStreak', 'bestStreak', 'totalPoints', 'lastActiveDate',
+          'historyDates', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.uid) &&
+        data.uid == userId &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120 &&
+        (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 500)) &&
+        (!('teacherEmail' in data) || (data.teacherEmail is string && data.teacherEmail.size() <= 200)) &&
+        data.currentStreak is int && data.currentStreak >= 0 && data.currentStreak <= 10000 &&
+        data.bestStreak is int && data.bestStreak >= 0 && data.bestStreak <= 10000 &&
+        data.totalPoints is int && data.totalPoints >= 0 && data.totalPoints <= 10000000 &&
+        (!('lastActiveDate' in data) || (data.lastActiveDate is string && data.lastActiveDate.size() <= 20)) &&
+        data.historyDates is list && data.historyDates.size() <= 365 &&
+        (data.historyDates.size() == 0 || (data.historyDates[0] is string && data.historyDates[0].size() <= 20)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidEvent(data, userId, eventId) {
+      return data.keys().hasAll([
+          'id', 'ownerUid', 'title', 'category', 'date',
+          'startTime', 'endTime', 'isCompleted', 'priority', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'ownerUid', 'teacherEmail', 'title', 'description', 'category',
+          'date', 'startTime', 'endTime', 'isCompleted', 'priority',
+          'location', 'meetingUrl', 'focusNotes', 'recurrence', 'sourceTaskId',
+          'pointsValue', 'subtasks', 'reminders', 'evidence', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        data.id == eventId &&
+        isValidId(data.ownerUid) &&
+        data.ownerUid == userId &&
+        (!('teacherEmail' in data) || (data.teacherEmail is string && data.teacherEmail.size() <= 200)) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+        (!('description' in data) || (data.description is string && data.description.size() <= 2000)) &&
+        data.category in ['deep_work', 'meetings', 'planning', 'health', 'personal', 'admin'] &&
+        data.date is string && data.date.size() <= 20 && data.date.matches('^\\d{4}-\\d{2}-\\d{2}$') &&
+        data.startTime is string && data.startTime.size() >= 1 && data.startTime.size() <= 10 &&
+        data.endTime is string && data.endTime.size() >= 1 && data.endTime.size() <= 10 &&
+        data.isCompleted is bool &&
+        data.priority in ['low', 'medium', 'high'] &&
+        (!('location' in data) || (data.location is string && data.location.size() <= 200)) &&
+        (!('meetingUrl' in data) || (data.meetingUrl is string && data.meetingUrl.size() <= 500)) &&
+        (!('focusNotes' in data) || (data.focusNotes is string && data.focusNotes.size() <= 2000)) &&
+        (!('recurrence' in data) || (data.recurrence in ['none', 'daily', 'weekdays', 'weekly'])) &&
+        (!('sourceTaskId' in data) || (data.sourceTaskId is string && data.sourceTaskId.size() <= 128)) &&
+        (!('pointsValue' in data) || (data.pointsValue is int && data.pointsValue >= 0 && data.pointsValue <= 100)) &&
+        (!('subtasks' in data) || (data.subtasks is list && data.subtasks.size() <= 30 && (data.subtasks.size() == 0 || data.subtasks[0] is map))) &&
+        (!('reminders' in data) || (data.reminders is list && data.reminders.size() <= 10 && (data.reminders.size() == 0 || data.reminders[0] is map))) &&
+        (!('evidence' in data) || isValidEvidence(data.evidence)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidTask(data, userId, taskId) {
+      return data.keys().hasAll([
+          'id', 'ownerUid', 'title', 'category', 'estimatedMinutes',
+          'priority', 'completed', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'ownerUid', 'teacherEmail', 'title', 'category', 'estimatedMinutes',
+          'priority', 'completed', 'dueDate', 'description',
+          'reminderMinutesBefore', 'reminderTime', 'pointsValue', 'evidence',
+          'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        data.id == taskId &&
+        isValidId(data.ownerUid) &&
+        data.ownerUid == userId &&
+        (!('teacherEmail' in data) || (data.teacherEmail is string && data.teacherEmail.size() <= 200)) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+        data.category in ['deep_work', 'meetings', 'planning', 'health', 'personal', 'admin'] &&
+        data.estimatedMinutes is int && data.estimatedMinutes >= 1 && data.estimatedMinutes <= 1440 &&
+        data.priority in ['low', 'medium', 'high'] &&
+        data.completed is bool &&
+        (!('dueDate' in data) || (data.dueDate is string && data.dueDate.size() <= 20)) &&
+        (!('description' in data) || (data.description is string && data.description.size() <= 2000)) &&
+        (!('reminderMinutesBefore' in data) || (data.reminderMinutesBefore is int && data.reminderMinutesBefore >= 0 && data.reminderMinutesBefore <= 10080)) &&
+        (!('reminderTime' in data) || (data.reminderTime is string && data.reminderTime.size() <= 64)) &&
+        (!('pointsValue' in data) || (data.pointsValue is int && data.pointsValue >= 0 && data.pointsValue <= 100)) &&
+        (!('evidence' in data) || isValidEvidence(data.evidence)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidFeedbackMessage(data, messageId) {
+      return data.keys().hasAll([
+          'id', 'senderUid', 'senderName', 'senderEmail', 'recipientEmail',
+          'category', 'text', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'senderUid', 'senderName', 'senderEmail', 'senderPhotoUrl',
+          'recipientEmail', 'category', 'text', 'replyText', 'replyByEmail',
+          'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        data.id == messageId &&
+        isValidId(data.senderUid) &&
+        data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 120 &&
+        data.senderEmail is string && data.senderEmail.size() >= 3 && data.senderEmail.size() <= 200 &&
+        (!('senderPhotoUrl' in data) || (data.senderPhotoUrl is string && data.senderPhotoUrl.size() <= 500)) &&
+        data.recipientEmail == 'nicolecarillo957@gmail.com' &&
+        data.category in ['feedback', 'idea', 'bug', 'praise'] &&
+        data.text is string && data.text.size() >= 1 && data.text.size() <= 1000 &&
+        (!('replyText' in data) || (data.replyText is string && data.replyText.size() <= 1000)) &&
+        (!('replyByEmail' in data) || (data.replyByEmail is string && data.replyByEmail.size() <= 200)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // --- Collection Rules ---
+
+    // 1. User Profiles & Student Directory (PII restricted to Owner, Assigned Teacher, or Creator Admin)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (
+        isAdmin() ||
+        isOwner(userId) ||
+        (isSignedIn() && existing().teacherEmail is string && existing().teacherEmail.size() > 0 && existing().teacherEmail == request.auth.token.email)
+      );
+
+      allow list: if isAdmin() || (
+        isSignedIn() && (
+          existing().uid == request.auth.uid ||
+          (existing().teacherEmail is string && existing().teacherEmail.size() > 0 && existing().teacherEmail == request.auth.token.email)
+        )
+      );
+
+      allow create: if isValidId(userId) &&
+        isOwner(userId) &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().email == request.auth.token.email &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isValidId(userId) &&
+        isValidUserProfile(incoming(), userId) &&
+        isOwner(userId) &&
+        incoming().uid == existing().uid &&
+        incoming().email == existing().email &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName', 'photoURL', 'teacherEmail', 'currentStreak',
+          'bestStreak', 'totalPoints', 'lastActiveDate', 'historyDates', 'updatedAt'
+        ]);
+
+      allow delete: if false;
+
+      // 2. Student Calendar Events
+      match /events/{eventId} {
+        allow get: if isValidId(userId) && isValidId(eventId) && (
+          isAdmin() ||
+          isOwner(userId) ||
+          (isSignedIn() && existing().teacherEmail is string && existing().teacherEmail.size() > 0 && existing().teacherEmail == request.auth.token.email)
+        );
+
+        allow list: if isAdmin() || (
+          isSignedIn() && (
+            existing().ownerUid == request.auth.uid ||
+            (existing().teacherEmail is string && existing().teacherEmail.size() > 0 && existing().teacherEmail == request.auth.token.email)
+          )
+        );
+
+        allow create: if isValidId(userId) && isValidId(eventId) &&
+          isOwner(userId) &&
+          isValidEvent(incoming(), userId, eventId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time;
+
+        allow update: if isValidId(userId) && isValidId(eventId) &&
+          isValidEvent(incoming(), userId, eventId) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time && (
+            // Tier 1: Student Owner edits own event
+            (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly([
+              'teacherEmail', 'title', 'description', 'category', 'date', 'startTime', 'endTime',
+              'isCompleted', 'priority', 'location', 'meetingUrl', 'focusNotes', 'recurrence',
+              'sourceTaskId', 'pointsValue', 'subtasks', 'reminders', 'evidence', 'updatedAt'
+            ])) ||
+            // Tier 2: Assigned Teacher or Admin verifies evidence & leaves feedback
+            ((isAdmin() || (isSignedIn() && existing().teacherEmail is string && existing().teacherEmail.size() > 0 && existing().teacherEmail == request.auth.token.email)) &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['evidence', 'updatedAt']))
+          );
+
+        allow delete: if isValidId(userId) && isValidId(eventId) && isOwner(userId);
+      }
+
+      // 3. Student Backlog Tasks
+      match /tasks/{taskId} {
+        allow get: if isValidId(userId) && isValidId(taskId) && (
+          isAdmin() ||
+          isOwner(userId) ||
+          (isSignedIn() && existing().teacherEmail is string && existing().teacherEmail.size() > 0 && existing().teacherEmail == request.auth.token.email)
+        );
+
+        allow list: if isAdmin() || (
+          isSignedIn() && (
+            existing().ownerUid == request.auth.uid ||
+            (existing().teacherEmail is string && existing().teacherEmail.size() > 0 && existing().teacherEmail == request.auth.token.email)
+          )
+        );
+
+        allow create: if isValidId(userId) && isValidId(taskId) &&
+          isOwner(userId) &&
+          isValidTask(incoming(), userId, taskId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time;
+
+        allow update: if isValidId(userId) && isValidId(taskId) &&
+          isValidTask(incoming(), userId, taskId) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time && (
+            // Tier 1: Student Owner edits own task
+            (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly([
+              'teacherEmail', 'title', 'category', 'estimatedMinutes', 'priority', 'completed',
+              'dueDate', 'description', 'reminderMinutesBefore', 'reminderTime',
+              'pointsValue', 'evidence', 'updatedAt'
+            ])) ||
+            // Tier 2: Assigned Teacher or Admin verifies evidence & leaves feedback
+            ((isAdmin() || (isSignedIn() && existing().teacherEmail is string && existing().teacherEmail.size() > 0 && existing().teacherEmail == request.auth.token.email)) &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['evidence', 'updatedAt']))
+          );
+
+        allow delete: if isValidId(userId) && isValidId(taskId) && isOwner(userId);
+      }
+    }
+
+    // 4. App Feedback & Creator Chat Messages
+    match /feedback_messages/{messageId} {
+      allow get: if isValidId(messageId) && (
+        isAdmin() ||
+        (isSignedIn() && existing().senderUid == request.auth.uid)
+      );
+
+      allow list: if isAdmin() || (
+        isSignedIn() && existing().senderUid == request.auth.uid
+      );
+
+      allow create: if isValidId(messageId) &&
+        isSignedIn() &&
+        isValidFeedbackMessage(incoming(), messageId) &&
+        incoming().senderUid == request.auth.uid &&
+        incoming().senderEmail == request.auth.token.email &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        !('replyText' in incoming()) &&
+        !('replyByEmail' in incoming());
+
+      allow update: if isValidId(messageId) &&
+        isAdmin() &&
+        isValidFeedbackMessage(incoming(), messageId) &&
+        incoming().senderUid == existing().senderUid &&
+        incoming().senderEmail == existing().senderEmail &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['replyText', 'replyByEmail', 'updatedAt']);
+
+      allow delete: if isValidId(messageId) && (
+        isAdmin() ||
+        (isSignedIn() && existing().senderUid == request.auth.uid)
+      );
+    }
+  }
+}

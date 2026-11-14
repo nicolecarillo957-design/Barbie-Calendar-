@@ -19,7 +19,6 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({
     { key: 'M', description: 'Switch to Month overview ✨' },
     { key: 'A', description: 'Switch to Barbie Time Audit & Glow 👑' },
     { key: 'V', description: 'Switch to Weekly Insights & Productivity Trends 📊' },
-    { key: 'C', description: 'Open Barbie Cycle & Period Glow (if enabled) 🩸' },
     { key: 'S', description: 'Open Barbie De-Stress & Overload SOS 🌸' },
     { key: 'I', description: 'Open Task Inbox & Backlog 📥' },
     { key: 'P', description: 'Choose Calendar Color Theme 🎨' },

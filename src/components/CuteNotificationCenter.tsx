@@ -26,7 +26,6 @@ interface CuteNotificationCenterProps {
   onClearAll: () => void;
   onSnooze: (id: string, minutes: number) => void;
   onTriggerTestReminder: () => void;
-  onTriggerCycleMorningNotification?: () => void;
   onSelectEvent: (event: CalendarEvent) => void;
 }
 
@@ -40,7 +39,6 @@ export const CuteNotificationCenter: React.FC<CuteNotificationCenterProps> = ({
   onClearAll,
   onSnooze,
   onTriggerTestReminder,
-  onTriggerCycleMorningNotification,
   onSelectEvent,
 }) => {
   const [activeTab, setActiveTab] = useState<'alerts' | 'upcoming'>('alerts');
@@ -124,19 +122,6 @@ export const CuteNotificationCenter: React.FC<CuteNotificationCenterProps> = ({
               <Sparkles className="w-3 h-3 text-pink-500 fill-pink-300" />
               <span>Test Chime 🌸</span>
             </button>
-
-            {onTriggerCycleMorningNotification && (
-              <button
-                onClick={() => {
-                  onTriggerCycleMorningNotification();
-                }}
-                className="px-2.5 py-1 font-semibold text-rose-800 bg-rose-50 hover:bg-rose-100 border border-rose-300 rounded-lg shadow-2xs flex items-center gap-1 transition-colors text-[11px]"
-                title="Trigger today's cycle-synced morning encouragement message"
-              >
-                <span>👑</span>
-                <span>Morning Glow Check-in</span>
-              </button>
-            )}
           </div>
 
           {notifications.length > 0 && (
@@ -194,31 +179,14 @@ export const CuteNotificationCenter: React.FC<CuteNotificationCenterProps> = ({
               notifications.map((notif) => (
                 <div
                   key={notif.id}
-                  className={`p-3.5 rounded-xl border shadow-xs transition-all group ${
-                    notif.type === 'cycle_morning'
-                      ? 'bg-gradient-to-r from-rose-50/90 via-pink-50/90 to-rose-50/90 border-rose-300 hover:border-rose-400'
-                      : 'bg-white border-pink-200 hover:border-pink-300'
-                  }`}
+                  className="p-3.5 rounded-xl border shadow-xs transition-all group bg-white border-pink-200 hover:border-pink-300"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      <span className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 border ${
-                        notif.type === 'cycle_morning'
-                          ? 'bg-rose-100 text-rose-600 border-rose-300'
-                          : 'bg-pink-100 text-pink-600 border-pink-200'
-                      }`}>
-                        {notif.type === 'cycle_morning' ? (
-                          <span className="text-xs">🌸</span>
-                        ) : (
-                          <Sparkles className="w-3 h-3 fill-pink-300 text-pink-600" />
-                        )}
+                      <span className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 border bg-pink-100 text-pink-600 border-pink-200">
+                        <Sparkles className="w-3 h-3 fill-pink-300 text-pink-600" />
                       </span>
                       <div>
-                        {notif.type === 'cycle_morning' && (
-                          <span className="text-[9px] uppercase tracking-wider font-extrabold text-rose-700 bg-white/80 px-1.5 py-0.5 rounded-md border border-rose-200 inline-block mb-0.5">
-                            Daily Cycle Encouragement
-                          </span>
-                        )}
                         <h4 className="text-xs font-bold text-pink-950">
                           {notif.title}
                         </h4>

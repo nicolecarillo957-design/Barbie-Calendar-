@@ -1,7 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { 
   CalendarEvent, 
-  CycleSettings,
   EventCategory, 
   UnscheduledTask 
 } from '../types/calendar';
@@ -14,7 +13,6 @@ import {
   isSameDay, 
   timeToMinutes 
 } from '../utils/dateUtils';
-import { getCurrentCycleInfo } from '../utils/cycleUtils';
 import { 
   CalendarPlus, 
   Check, 
@@ -45,8 +43,6 @@ interface DayViewProps {
   onDeleteEvent: (eventId: string) => void;
   onStartFocus: (event: CalendarEvent) => void;
   onScheduleTask: (task: UnscheduledTask) => void;
-  cycleSettings?: CycleSettings;
-  onOpenCycle?: () => void;
 }
 
 const START_HOUR = 7;
@@ -66,8 +62,6 @@ export const DayView: React.FC<DayViewProps> = ({
   onDeleteEvent,
   onStartFocus,
   onScheduleTask,
-  cycleSettings,
-  onOpenCycle,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const dateStr = formatDateKey(currentDate);
@@ -150,25 +144,6 @@ export const DayView: React.FC<DayViewProps> = ({
                 <span className="text-pink-700 font-mono font-bold">
                   {dailySummary.deepWorkHours.toFixed(1)}h Focus
                 </span>
-              </>
-            )}
-            {cycleSettings && cycleSettings.enabled !== false && (
-              <>
-                <span aria-hidden="true" className="text-pink-300">·</span>
-                {(() => {
-                  const cInfo = getCurrentCycleInfo(currentDate, cycleSettings);
-                  return (
-                    <button
-                      onClick={onOpenCycle}
-                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-white/95 border border-pink-300 text-pink-900 hover:bg-pink-100 font-bold transition-all shadow-2xs hover:scale-105"
-                      title="Click to view cycle guidance and tips"
-                    >
-                      <span>{cInfo.icon}</span>
-                      <span>Day {cInfo.cycleDay}</span>
-                      <span className="text-[10px] text-pink-600 underline font-semibold">Glow ✨</span>
-                    </button>
-                  );
-                })()}
               </>
             )}
           </div>
@@ -470,60 +445,6 @@ export const DayView: React.FC<DayViewProps> = ({
             </span>
           </div>
         </div>
-
-        {/* Phase Cadence & Recommendations Card */}
-        {cycleSettings && (
-          <div className="p-3.5 bg-gradient-to-br from-pink-50 via-rose-50 to-pink-100/70 rounded-2xl border border-pink-200 mb-4 shadow-2xs">
-            {(() => {
-              const cInfo = getCurrentCycleInfo(currentDate, cycleSettings);
-              return (
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs font-black text-pink-950 uppercase tracking-tight flex items-center gap-1">
-                      <span>{cInfo.icon}</span>
-                      <span>{cInfo.phaseName}</span>
-                    </span>
-                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-pink-200/90 text-pink-800">
-                      Day {cInfo.cycleDay}
-                    </span>
-                  </div>
-
-                  <div className="text-[11px] text-pink-700 font-bold mb-2">
-                    {cInfo.isPeriod ? (
-                      <span className="text-rose-700 flex items-center gap-1">
-                        <span>🩸</span>
-                        <span>Period Day {cInfo.cycleDay} · Prioritize Rest</span>
-                      </span>
-                    ) : (
-                      <span>Next Period: {cInfo.nextPeriodDate} ({cInfo.daysUntilNextPeriod}d)</span>
-                    )}
-                  </div>
-
-                  {/* Bulleted recommendations summary */}
-                  <div className="space-y-1.5 text-xs text-pink-900 bg-white/80 p-2.5 rounded-xl border border-pink-200 mb-2.5 font-medium leading-relaxed">
-                    <p className="line-clamp-2">
-                      <strong className="text-pink-950 font-bold">💼 Focus:</strong> {cInfo.whatToDoWork}
-                    </p>
-                    <p className="line-clamp-2">
-                      <strong className="text-pink-950 font-bold">🏃‍♀️ Movement:</strong> {cInfo.whatToDoMovement}
-                    </p>
-                    <p className="line-clamp-2">
-                      <strong className="text-pink-950 font-bold">🥑 Nourish:</strong> {cInfo.whatToDoNutrition}
-                    </p>
-                  </div>
-
-                  <button
-                    onClick={onOpenCycle}
-                    className="w-full py-1.5 px-2 bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white rounded-xl text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 transition-transform active:scale-95"
-                  >
-                    <Sparkles className="w-3 h-3" />
-                    <span>Open Cycle Wheel & Advice 💖</span>
-                  </button>
-                </div>
-              );
-            })()}
-          </div>
-        )}
 
         {/* Quick Add block to today button */}
         <button
