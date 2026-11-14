@@ -29,6 +29,7 @@ interface WeekViewProps {
   onToggleComplete: (eventId: string) => void;
   onDeleteEvent: (eventId: string) => void;
   onStartFocus: (event: CalendarEvent) => void;
+  readOnly?: boolean;
 }
 
 const START_HOUR = 7; // 7:00 AM
@@ -45,6 +46,7 @@ export const WeekView: React.FC<WeekViewProps> = ({
   onToggleComplete,
   onDeleteEvent,
   onStartFocus,
+  readOnly = false,
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -94,11 +96,15 @@ export const WeekView: React.FC<WeekViewProps> = ({
 
   return (
     <div className="flex-1 flex flex-col h-full bg-pink-50/20 select-none overflow-x-auto overflow-y-hidden">
-      <div className="flex-1 flex flex-col min-w-[620px] md:min-w-0 h-full relative">
+      <div className="md:hidden px-3 py-1 bg-pink-100/80 border-b border-pink-200 text-[10px] font-bold text-pink-700 flex items-center justify-between sticky left-0">
+        <span>👈 Swipe left/right for Mon–Sun</span>
+        <span>{readOnly ? 'Tap block to inspect proof' : 'Tap slot to add'}</span>
+      </div>
+      <div className="flex-1 flex flex-col min-w-[560px] md:min-w-0 h-full relative">
         {/* 1. Week Days Sticky Header */}
-      <div className="grid grid-cols-[64px_repeat(7,1fr)] border-b border-pink-200/90 bg-pink-100/50 shrink-0 pr-2">
-        <div className="py-2.5 px-3 border-r border-pink-200/80 text-[11px] font-bold text-pink-400 text-right">
-          GMT-7
+      <div className="grid grid-cols-[50px_repeat(7,1fr)] sm:grid-cols-[64px_repeat(7,1fr)] border-b border-pink-200/90 bg-pink-100/50 shrink-0 pr-2">
+        <div className="py-2.5 px-1.5 sm:px-3 border-r border-pink-200/80 text-[10px] sm:text-[11px] font-bold text-pink-400 text-right">
+          Time
         </div>
 
         {weekDays.map((d, index) => {
@@ -135,7 +141,7 @@ export const WeekView: React.FC<WeekViewProps> = ({
       {/* 2. Scrollable Time Grid */}
       <div 
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto relative grid grid-cols-[64px_repeat(7,1fr)]"
+        className="flex-1 overflow-y-auto relative grid grid-cols-[50px_repeat(7,1fr)] sm:grid-cols-[64px_repeat(7,1fr)] pb-20 md:pb-4"
       >
         {/* Left Column: Time Labels */}
         <div className="relative border-r border-pink-200/80 bg-white/60">
@@ -148,8 +154,8 @@ export const WeekView: React.FC<WeekViewProps> = ({
                 style={{ height: `${HOUR_HEIGHT_PX}px` }}
                 className="relative border-b border-transparent"
               >
-                <span className="absolute -top-2.5 right-3 text-[11px] font-mono text-pink-400 font-medium">
-                  {displayH} {period}
+                <span className="absolute -top-2.5 right-1.5 sm:right-3 text-[10px] sm:text-[11px] font-mono text-pink-400 font-medium">
+                  {displayH}{period}
                 </span>
               </div>
             );
@@ -176,10 +182,13 @@ export const WeekView: React.FC<WeekViewProps> = ({
                   key={hour}
                   style={{ height: `${HOUR_HEIGHT_PX}px` }}
                   onClick={() => {
+                    if (readOnly) return;
                     const timeStr = `${String(hour).padStart(2, '0')}:00`;
                     onSlotClick(dateStr, timeStr);
                   }}
-                  className="border-b border-pink-100 hover:bg-pink-100/40 cursor-pointer transition-colors group relative"
+                  className={`border-b border-pink-100 transition-colors group relative ${
+                    readOnly ? 'cursor-default' : 'hover:bg-pink-100/40 cursor-pointer'
+                  }`}
                 >
                   {/* Subtle half-hour dashed line */}
                   <div className="absolute top-1/2 left-0 right-0 border-b border-dashed border-pink-100/70" />
@@ -239,14 +248,18 @@ export const WeekView: React.FC<WeekViewProps> = ({
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              onToggleComplete(ev.id);
+                              if (readOnly) {
+                                onSelectEvent(ev);
+                              } else {
+                                onToggleComplete(ev.id);
+                              }
                             }}
                             className={`w-3.5 h-3.5 rounded border shrink-0 flex items-center justify-center transition-colors ${
                               ev.isCompleted
                                 ? 'bg-pink-500 border-pink-500 text-white'
                                 : 'border-pink-300 bg-white hover:border-pink-500'
                             }`}
-                            title={ev.isCompleted ? 'Mark incomplete' : 'Mark complete'}
+                            title={readOnly ? 'Inspect proof' : ev.isCompleted ? 'Mark incomplete' : 'Mark complete'}
                           >
                             {ev.isCompleted && <Check className="w-2.5 h-2.5" />}
                           </button>
@@ -260,14 +273,14 @@ export const WeekView: React.FC<WeekViewProps> = ({
                           </span>
                         </div>
 
-                        {/* Quick Start Focus Button (visible on hover) */}
-                        {!ev.isCompleted && (
+                        {/* Quick Start Focus Button (Student only) */}
+                        {!readOnly && !ev.isCompleted && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               onStartFocus(ev);
                             }}
-                            className="opacity-0 group-hover:opacity-100 p-0.5 text-pink-700 hover:text-pink-900 bg-white/90 rounded transition-opacity"
+                            className="opacity-80 sm:opacity-0 sm:group-hover:opacity-100 p-0.5 text-pink-700 hover:text-pink-900 bg-white/90 rounded transition-opacity"
                             title="Start Focus Session"
                           >
                             <Play className="w-3 h-3 fill-current" />
@@ -329,10 +342,14 @@ export const WeekView: React.FC<WeekViewProps> = ({
         {filteredEvents.length === 0 && (
           <div className="absolute top-16 left-20 right-4 z-10 pointer-events-none flex justify-center">
             <div className="pointer-events-auto bg-white/95 border border-pink-300 rounded-2xl p-4 shadow-sm text-center max-w-sm">
-              <span className="text-xl">🌸</span>
-              <h5 className="text-xs font-black text-pink-950 mt-1">Fresh Week Schedule</h5>
+              <span className="text-xl">{readOnly ? '👩‍🏫' : '🌸'}</span>
+              <h5 className="text-xs font-black text-pink-950 mt-1">
+                {readOnly ? 'No Scheduled Student Blocks' : 'Fresh Week Schedule'}
+              </h5>
               <p className="text-[11px] text-pink-700 font-medium mt-0.5">
-                Click any slot across Monday to Sunday to timebox your week! 💖
+                {readOnly
+                  ? 'Your monitored student has not added calendar timeboxes for this week yet.'
+                  : 'Click any slot across Monday to Sunday to timebox your week! 💖'}
               </p>
             </div>
           </div>

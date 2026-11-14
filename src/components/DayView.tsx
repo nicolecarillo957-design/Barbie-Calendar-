@@ -43,6 +43,7 @@ interface DayViewProps {
   onDeleteEvent: (eventId: string) => void;
   onStartFocus: (event: CalendarEvent) => void;
   onScheduleTask: (task: UnscheduledTask) => void;
+  readOnly?: boolean;
 }
 
 const START_HOUR = 7;
@@ -62,6 +63,7 @@ export const DayView: React.FC<DayViewProps> = ({
   onDeleteEvent,
   onStartFocus,
   onScheduleTask,
+  readOnly = false,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const dateStr = formatDateKey(currentDate);
@@ -154,7 +156,7 @@ export const DayView: React.FC<DayViewProps> = ({
         </div>
 
         {/* Scrollable Timeline */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto relative grid grid-cols-[80px_1fr]">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto relative grid grid-cols-[54px_1fr] sm:grid-cols-[80px_1fr] pb-20 md:pb-4">
           {/* Time axis */}
           <div className="relative border-r border-pink-200/80 bg-white/60">
             {hours.map((hour) => {
@@ -166,7 +168,7 @@ export const DayView: React.FC<DayViewProps> = ({
                   style={{ height: `${HOUR_HEIGHT_PX}px` }}
                   className="relative border-b border-transparent"
                 >
-                  <span className="absolute -top-2.5 right-4 text-xs font-mono font-medium text-pink-400">
+                  <span className="absolute -top-2.5 right-2 sm:right-4 text-[10px] sm:text-xs font-mono font-medium text-pink-400">
                     {displayH} {period}
                   </span>
                 </div>
@@ -181,10 +183,13 @@ export const DayView: React.FC<DayViewProps> = ({
                 key={hour}
                 style={{ height: `${HOUR_HEIGHT_PX}px` }}
                 onClick={() => {
+                  if (readOnly) return;
                   const timeStr = `${String(hour).padStart(2, '0')}:00`;
                   onSlotClick(dateStr, timeStr);
                 }}
-                className="border-b border-pink-100 hover:bg-pink-100/30 cursor-pointer transition-colors relative"
+                className={`border-b border-pink-100 transition-colors relative ${
+                  readOnly ? 'cursor-default' : 'hover:bg-pink-100/30 cursor-pointer'
+                }`}
               >
                 <div className="absolute top-1/2 left-0 right-0 border-b border-dashed border-pink-100/70" />
               </div>
@@ -204,21 +209,25 @@ export const DayView: React.FC<DayViewProps> = ({
             {/* Empty State Invitation when no events */}
             {dayEvents.length === 0 && (
               <div className="absolute inset-x-4 top-24 z-10 flex flex-col items-center justify-center p-6 bg-white/95 backdrop-blur-xs rounded-2xl border-2 border-dashed border-pink-300 shadow-md text-center max-w-sm mx-auto animate-in fade-in duration-300">
-                <span className="text-3xl mb-1.5 animate-bounce">🎀</span>
+                <span className="text-3xl mb-1.5 animate-bounce">{readOnly ? '👩‍🏫' : '🎀'}</span>
                 <h4 className="text-sm font-extrabold text-pink-950">
-                  Your schedule is fresh & clear!
+                  {readOnly ? 'No blocks scheduled for this day' : 'Your schedule is fresh & clear!'}
                 </h4>
                 <p className="text-xs text-pink-700 font-medium mt-1 leading-relaxed">
-                  Tap any time slot on the calendar grid to schedule your first custom timebox ✨
+                  {readOnly
+                    ? 'This student has not scheduled any calendar timeboxes for this date yet.'
+                    : 'Tap any time slot on the calendar grid to schedule your first custom timebox ✨'}
                 </p>
-                <button
-                  type="button"
-                  onClick={() => onSlotClick(dateStr, '09:00')}
-                  className="mt-3.5 px-4 py-2 bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white text-xs font-bold rounded-xl shadow-xs transition-transform active:scale-95 flex items-center gap-1.5"
-                >
-                  <Plus className="w-3.5 h-3.5 stroke-[3]" />
-                  <span>Timebox 9:00 AM 💖</span>
-                </button>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    onClick={() => onSlotClick(dateStr, '09:00')}
+                    className="mt-3.5 px-4 py-2 bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white text-xs font-bold rounded-xl shadow-xs transition-transform active:scale-95 flex items-center gap-1.5"
+                  >
+                    <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                    <span>Timebox 9:00 AM 💖</span>
+                  </button>
+                )}
               </div>
             )}
 
@@ -261,13 +270,18 @@ export const DayView: React.FC<DayViewProps> = ({
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            onToggleComplete(ev.id);
+                            if (readOnly) {
+                              onSelectEvent(ev);
+                            } else {
+                              onToggleComplete(ev.id);
+                            }
                           }}
                           className={`w-4 h-4 rounded-md border shrink-0 flex items-center justify-center transition-colors ${
                             ev.isCompleted
                               ? 'bg-pink-500 border-pink-500 text-white'
                               : 'border-pink-300 bg-white hover:border-pink-500'
                           }`}
+                          title={readOnly ? 'Inspect completion status & proof' : ev.isCompleted ? 'Mark incomplete' : 'Mark complete'}
                         >
                           {ev.isCompleted && <Check className="w-3 h-3 stroke-[3]" />}
                         </button>
@@ -281,35 +295,37 @@ export const DayView: React.FC<DayViewProps> = ({
                         </h3>
                       </div>
 
-                      <div className="flex items-center gap-1 shrink-0">
-                        {!ev.isCompleted && (
+                      {!readOnly && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          {!ev.isCompleted && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onStartFocus(ev);
+                              }}
+                              className="px-2.5 py-1 text-[11px] font-bold text-pink-700 bg-white/95 hover:bg-pink-100 rounded-lg flex items-center gap-1 shadow-2xs transition-colors"
+                              title="Launch Focus Mode"
+                            >
+                              <Play className="w-3 h-3 fill-current" />
+                              <span>Focus ✨</span>
+                            </button>
+                          )}
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              onStartFocus(ev);
+                              onDeleteEvent(ev.id);
                             }}
-                            className="px-2.5 py-1 text-[11px] font-bold text-pink-700 bg-white/95 hover:bg-pink-100 rounded-lg flex items-center gap-1 shadow-2xs transition-colors"
-                            title="Launch Focus Mode"
+                            className="opacity-80 sm:opacity-0 sm:group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-600 rounded transition-opacity"
+                            title="Delete timebox"
                           >
-                            <Play className="w-3 h-3 fill-current" />
-                            <span>Focus ✨</span>
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
-                        )}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onDeleteEvent(ev.id);
-                          }}
-                          className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-600 rounded transition-opacity"
-                          title="Delete timebox"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Metadata line */}
-                    <div className="flex items-center gap-3 text-xs text-pink-700 font-mono mt-1">
+                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] sm:text-xs text-pink-700 font-mono mt-1">
                       <span className="flex items-center gap-1 font-semibold">
                         <Clock className="w-3 h-3 opacity-70" />
                         {formatFriendlyTime(ev.startTime)} - {formatFriendlyTime(ev.endTime)}
@@ -446,19 +462,21 @@ export const DayView: React.FC<DayViewProps> = ({
           </div>
         </div>
 
-        {/* Quick Add block to today button */}
-        <button
-          onClick={() => onSlotClick(dateStr, '09:00')}
-          className="w-full py-2.5 px-3 text-xs font-bold text-white bg-pink-500 hover:bg-pink-600 rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition-colors mb-4"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          Timebox a Block for Today 🎀
-        </button>
+        {/* Quick Add block to today button (Student only) */}
+        {!readOnly && (
+          <button
+            onClick={() => onSlotClick(dateStr, '09:00')}
+            className="w-full py-2.5 px-3 text-xs font-bold text-white bg-pink-500 hover:bg-pink-600 rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition-colors mb-4"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Timebox a Block for Today 🎀
+          </button>
+        )}
 
         {/* Unscheduled Backlog ready to place */}
         <div className="flex-1">
           <span className="text-xs font-bold text-pink-900 uppercase tracking-wider block mb-2">
-            Pull from Backlog 🌸
+            {readOnly ? 'Student Backlog (View-Only) 📋' : 'Pull from Backlog 🌸'}
           </span>
 
           <div className="space-y-2">
@@ -470,13 +488,15 @@ export const DayView: React.FC<DayViewProps> = ({
                 <p className="text-xs font-semibold text-pink-950 mb-1">{task.title}</p>
                 <div className="flex items-center justify-between text-[11px] text-pink-600">
                   <span className="font-mono font-medium">{task.estimatedMinutes}m est.</span>
-                  <button
-                    onClick={() => onScheduleTask(task)}
-                    className="text-pink-600 hover:text-pink-800 font-bold flex items-center gap-1"
-                  >
-                    <CalendarPlus className="w-3 h-3" />
-                    Place on Today 💖
-                  </button>
+                  {!readOnly && (
+                    <button
+                      onClick={() => onScheduleTask(task)}
+                      className="text-pink-600 hover:text-pink-800 font-bold flex items-center gap-1"
+                    >
+                      <CalendarPlus className="w-3 h-3" />
+                      Place on Today 💖
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

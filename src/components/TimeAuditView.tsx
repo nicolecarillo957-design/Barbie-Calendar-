@@ -121,13 +121,13 @@ export const TimeAuditView: React.FC<TimeAuditViewProps> = ({
   const maxDayHours = Math.max(...Object.values(stats.hoursByDay), 8);
 
   return (
-    <div className="flex-1 bg-pink-50/30 p-6 overflow-y-auto select-none">
-      <div className="max-w-6xl mx-auto space-y-6">
+    <div className="flex-1 bg-pink-50/30 p-3.5 sm:p-6 pb-24 md:pb-6 overflow-y-auto select-none">
+      <div className="max-w-6xl mx-auto space-y-5 sm:space-y-6">
         {/* Header Kicker */}
-        <div className="flex items-center justify-between pb-4 border-b border-pink-200">
+        <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-pink-200">
           <div>
-            <h2 className="text-xl font-extrabold tracking-tight text-pink-950 flex items-center gap-2">
-              <span>Barbie Time Audit & Glow-Up Cadence</span>
+            <h2 className="text-lg sm:text-xl font-extrabold tracking-tight text-pink-950 flex items-center gap-2">
+              <span>Time Audit &amp; Cadence</span>
               <span>💖</span>
             </h2>
             <p className="text-xs text-pink-600 font-medium mt-0.5">

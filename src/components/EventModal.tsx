@@ -200,22 +200,22 @@ export const EventModal: React.FC<EventModalProps> = ({
   const activeCatConfig = getCategoryConfig(category);
 
   return (
-    <div className="fixed inset-0 z-50 bg-pink-950/50 backdrop-blur-2xs flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl border-2 border-pink-300 overflow-hidden my-8 text-pink-950 animate-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 bg-pink-950/50 backdrop-blur-2xs flex items-center justify-center p-2 sm:p-4">
+      <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl border-2 border-pink-300 overflow-hidden max-h-[92dvh] flex flex-col text-pink-950 animate-in zoom-in-95 duration-200">
         {/* Top Header */}
-        <div className="p-4 bg-gradient-to-r from-pink-200 via-rose-100 to-pink-200 border-b border-pink-300 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="p-3.5 sm:p-4 bg-gradient-to-r from-pink-200 via-rose-100 to-pink-200 border-b border-pink-300 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
             <span
-              className="w-3.5 h-3.5 rounded-full shadow-xs border border-white"
+              className="w-3.5 h-3.5 rounded-full shadow-xs border border-white shrink-0"
               style={{ backgroundColor: activeCatConfig.color }}
             />
-            <h3 className="text-sm font-extrabold text-pink-950 flex items-center gap-1.5">
-              <span>{eventToEdit ? 'Edit Glam Timebox' : 'Schedule Barbie Timebox'}</span>
+            <h3 className="text-sm font-extrabold text-pink-950 flex items-center gap-1.5 truncate">
+              <span>{eventToEdit ? 'Edit Timebox' : 'Schedule Timebox'}</span>
               <span>💖</span>
             </h3>
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 shrink-0">
             {eventToEdit && onDuplicate && (
               <button
                 type="button"
@@ -255,7 +255,7 @@ export const EventModal: React.FC<EventModalProps> = ({
         </div>
 
         {/* Modal Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
           {/* Conflict Warning Banner */}
           {conflictingEvents.length > 0 && (
             <div className="p-3 bg-rose-50 border border-rose-300 rounded-2xl flex items-start gap-2.5 text-xs text-rose-800">
@@ -321,8 +321,8 @@ export const EventModal: React.FC<EventModalProps> = ({
           </div>
 
           {/* Date, Start Time, End Time */}
-          <div className="grid grid-cols-3 gap-2">
-            <div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <div className="col-span-2 sm:col-span-1">
               <label className="block text-xs font-bold text-pink-900 mb-1">
                 Date
               </label>
@@ -363,11 +363,11 @@ export const EventModal: React.FC<EventModalProps> = ({
           </div>
 
           {/* Duration Preset Chips */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-1.5">
             <span className="text-[11px] font-mono text-pink-600 font-bold">
               Duration: {formatDuration(startTime, endTime)}
             </span>
-            <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center gap-1">
               {[30, 45, 60, 90, 120].map((mins) => (
                 <button
                   key={mins}
@@ -382,7 +382,7 @@ export const EventModal: React.FC<EventModalProps> = ({
           </div>
 
           {/* Location & Meeting Link */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-bold text-pink-900 mb-1">
                 Location 🌴

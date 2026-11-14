@@ -5,6 +5,7 @@ import {
   TaskEvidence,
   UnscheduledTask,
   UserProfileDoc,
+  UserRole,
 } from '../types/calendar';
 import { cuteSound } from '../utils/cuteSound';
 import { 
@@ -46,6 +47,7 @@ interface TeacherMonitorModalProps {
   currentUserUid?: string;
   currentUserEmail?: string;
   teacherEmailLink?: string;
+  userRole?: UserRole | null;
   onLinkTeacherEmail?: (email: string) => Promise<void>;
   onSelectStudentToMonitor?: (student: UserProfileDoc | null) => void;
   onUpdateEventEvidence?: (eventId: string, updatedEvidence: TaskEvidence) => void;
@@ -68,6 +70,7 @@ export const TeacherMonitorModal: React.FC<TeacherMonitorModalProps> = ({
   currentUserUid,
   currentUserEmail,
   teacherEmailLink = '',
+  userRole = 'student',
   onLinkTeacherEmail,
   onSelectStudentToMonitor,
   onUpdateEventEvidence,
@@ -75,6 +78,7 @@ export const TeacherMonitorModal: React.FC<TeacherMonitorModalProps> = ({
   onSwitchToStudentView,
   onOpenWeeklyInsights,
 }) => {
+  const isTeacherAccount = userRole === 'teacher';
   const [selectedPhotoModal, setSelectedPhotoModal] = useState<TaskEvidence | null>(null);
   const [filterType, setFilterType] = useState<'all' | 'verified' | 'unverified'>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -177,37 +181,47 @@ export const TeacherMonitorModal: React.FC<TeacherMonitorModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-pink-950/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-      <div className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl border-2 border-pink-300 overflow-hidden my-auto max-h-[95vh] flex flex-col text-pink-950 animate-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 bg-pink-950/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4">
+      <div className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl border-2 border-pink-300 overflow-hidden my-auto max-h-[92dvh] flex flex-col text-pink-950 animate-in zoom-in-95 duration-200">
         
         {/* Header Bar */}
-        <div className="p-4 bg-gradient-to-r from-pink-200 via-rose-100 to-pink-200 border-b border-pink-300 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
-            <span className="w-10 h-10 rounded-2xl bg-white text-pink-700 flex items-center justify-center shadow-xs border border-pink-300 text-xl shrink-0">
-              👩‍🏫
-            </span>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-base font-black text-pink-950 tracking-tight">
-                  Teacher Monitoring & Student Streak Dashboard
-                </h3>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-pink-500 text-white shadow-2xs font-mono">
-                  Live Audit
-                </span>
+        <div className="p-3.5 sm:p-4 bg-gradient-to-r from-pink-200 via-rose-100 to-pink-200 border-b border-pink-300 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shrink-0">
+          <div className="flex items-start sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-white text-pink-700 flex items-center justify-center shadow-xs border border-pink-300 text-lg sm:text-xl shrink-0">
+                👩‍🏫
+              </span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <h3 className="text-sm sm:text-base font-black text-pink-950 tracking-tight truncate">
+                    Teacher Monitoring Dashboard
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-pink-500 text-white shadow-2xs font-mono shrink-0">
+                    Live Audit
+                  </span>
+                </div>
+                <p className="text-[11px] sm:text-xs text-pink-700 font-medium line-clamp-1">
+                  Verify student tasks, photo proofs &amp; completion timestamps.
+                </p>
               </div>
-              <p className="text-xs text-pink-700 font-medium">
-                Verify student tasks, view completion picture proofs with exact timestamps, and award streaks.
-              </p>
             </div>
+
+            <button
+              onClick={onClose}
+              className="sm:hidden p-1.5 text-pink-700 hover:text-pink-900 hover:bg-pink-200/70 rounded-xl transition-colors shrink-0"
+              aria-label="Close"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <button
               onClick={() => {
                 cuteSound.playSparkle();
                 setIsWeeklySummaryOpen(true);
               }}
-              className="px-3 py-1.5 bg-gradient-to-r from-pink-500 via-rose-500 to-fuchsia-600 hover:from-pink-600 hover:to-rose-600 text-white rounded-xl text-xs font-extrabold shadow-2xs flex items-center gap-1.5 transition-all active:scale-95 border border-pink-400"
+              className="px-2.5 sm:px-3 py-1.5 bg-gradient-to-r from-pink-500 via-rose-500 to-fuchsia-600 hover:from-pink-600 hover:to-rose-600 text-white rounded-xl text-[11px] sm:text-xs font-extrabold shadow-2xs flex items-center gap-1.5 transition-all active:scale-95 border border-pink-400"
               title="Generate parent-ready performance report with streaks, points, and praise"
             >
               <FileText className="w-3.5 h-3.5 text-pink-100" />
@@ -220,26 +234,27 @@ export const TeacherMonitorModal: React.FC<TeacherMonitorModalProps> = ({
                   onClose();
                   onOpenWeeklyInsights();
                 }}
-                className="hidden sm:flex px-3 py-1.5 bg-pink-500 hover:bg-pink-600 text-white rounded-xl text-xs font-bold shadow-2xs items-center gap-1.5 transition-colors"
+                className="px-2.5 sm:px-3 py-1.5 bg-pink-500 hover:bg-pink-600 text-white rounded-xl text-[11px] sm:text-xs font-bold shadow-2xs flex items-center gap-1.5 transition-colors"
                 title="View Recharts 7-Day Productivity Trends"
               >
                 <BarChart3 className="w-3.5 h-3.5" />
-                <span>Weekly Insights</span>
+                <span>Insights</span>
               </button>
             )}
 
             <button
               onClick={handleExportReport}
-              className="hidden sm:flex px-3 py-1.5 bg-white hover:bg-pink-50 border border-pink-300 rounded-xl text-xs font-bold text-pink-800 shadow-2xs items-center gap-1.5 transition-colors"
+              className="px-2.5 sm:px-3 py-1.5 bg-white hover:bg-pink-50 border border-pink-300 rounded-xl text-[11px] sm:text-xs font-bold text-pink-800 shadow-2xs flex items-center gap-1.5 transition-colors"
               title="Download text report of all submissions"
             >
               <Download className="w-3.5 h-3.5 text-pink-600" />
-              <span>Export Report</span>
+              <span>Export</span>
             </button>
 
             <button
               onClick={onClose}
-              className="p-2 text-pink-700 hover:text-pink-900 hover:bg-pink-200/70 rounded-xl transition-colors"
+              className="hidden sm:block p-2 text-pink-700 hover:text-pink-900 hover:bg-pink-200/70 rounded-xl transition-colors"
+              aria-label="Close"
             >
               <X className="w-5 h-5" />
             </button>
@@ -247,9 +262,9 @@ export const TeacherMonitorModal: React.FC<TeacherMonitorModalProps> = ({
         </div>
 
         {/* Top Summary Banner & Student Switcher */}
-        <div className="p-4 sm:p-5 bg-gradient-to-br from-pink-50 via-rose-50/70 to-pink-100/50 border-b border-pink-200 shrink-0 space-y-3">
+        <div className="p-3 sm:p-5 bg-gradient-to-br from-pink-50 via-rose-50/70 to-pink-100/50 border-b border-pink-200 shrink-0 space-y-3 overflow-y-auto max-h-[42dvh] sm:max-h-none">
           {/* Student Directory Picker for Teachers & Teacher Email Linking */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          <div className={`grid grid-cols-1 ${!isTeacherAccount && onLinkTeacherEmail ? 'lg:grid-cols-2' : ''} gap-3`}>
             {/* Switch Monitored Student */}
             <div className="p-3 bg-white/95 rounded-2xl border border-pink-200 shadow-2xs space-y-2">
               <div className="flex items-center justify-between">
@@ -257,7 +272,7 @@ export const TeacherMonitorModal: React.FC<TeacherMonitorModalProps> = ({
                   <Users className="w-3.5 h-3.5 text-pink-600" />
                   <span>Students Linked to You ({monitoredStudents.length})</span>
                 </span>
-                {isViewingAnotherStudent && onSelectStudentToMonitor && (
+                {!isTeacherAccount && isViewingAnotherStudent && onSelectStudentToMonitor && (
                   <button
                     type="button"
                     onClick={() => onSelectStudentToMonitor(null)}
@@ -270,11 +285,11 @@ export const TeacherMonitorModal: React.FC<TeacherMonitorModalProps> = ({
 
               {monitoredStudents.length === 0 ? (
                 <p className="text-[11px] text-pink-700 leading-snug">
-                  No students have linked your Gmail ({currentUserEmail || 'your email'}) yet. Have a student enter your Gmail in the box on the right to share their calendar!
+                  No students have linked your Gmail ({currentUserEmail || 'your email'}) yet. Have a student enter your Gmail in their Settings so their calendar &amp; photo proofs appear here!
                 </p>
               ) : (
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-                  {onSelectStudentToMonitor && (
+                  {!isTeacherAccount && onSelectStudentToMonitor && (
                     <button
                       type="button"
                       onClick={() => onSelectStudentToMonitor(null)}
@@ -328,8 +343,8 @@ export const TeacherMonitorModal: React.FC<TeacherMonitorModalProps> = ({
               )}
             </div>
 
-            {/* Link Teacher Email Box */}
-            {onLinkTeacherEmail && (
+            {/* Link Teacher Email Box (Student Only) */}
+            {!isTeacherAccount && onLinkTeacherEmail && (
               <div className="p-3 bg-white/95 rounded-2xl border border-amber-200 shadow-2xs space-y-1.5">
                 <span className="text-[11px] font-black text-amber-950 uppercase tracking-wider flex items-center gap-1.5">
                   <Mail className="w-3.5 h-3.5 text-amber-600" />

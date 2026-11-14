@@ -8,6 +8,8 @@ export type EventCategory =
 
 export type Priority = 'low' | 'medium' | 'high';
 
+export type UserRole = 'student' | 'teacher';
+
 export interface Subtask {
   id: string;
   text: string;
@@ -118,6 +120,7 @@ export interface UserProfileDoc {
   email: string;
   displayName: string;
   photoURL?: string;
+  role?: UserRole;
   teacherEmail?: string;
   currentStreak: number;
   bestStreak: number;

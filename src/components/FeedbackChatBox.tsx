@@ -147,13 +147,14 @@ export const FeedbackChatBox: React.FC<FeedbackChatBoxProps> = ({ currentUser })
             setIsOpen(true);
             cuteSound.playCutePop();
           }}
-          className="fixed bottom-20 md:bottom-5 right-4 z-40 px-3.5 py-2.5 bg-gradient-to-r from-pink-500 via-rose-500 to-fuchsia-600 hover:from-pink-600 hover:to-rose-600 text-white rounded-2xl shadow-xl shadow-pink-300/60 border-2 border-white flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+          className="fixed bottom-20 md:bottom-5 right-3 sm:right-4 z-40 px-3 sm:px-3.5 py-2.5 bg-gradient-to-r from-pink-500 via-rose-500 to-fuchsia-600 hover:from-pink-600 hover:to-rose-600 text-white rounded-full sm:rounded-2xl shadow-xl shadow-pink-300/60 border-2 border-white flex items-center gap-1.5 sm:gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
           title="Chat or leave feedback for the app creator"
         >
-          <MessageCircleHeart className="w-4 h-4 fill-white/20" />
-          <span className="text-xs font-extrabold">
+          <MessageCircleHeart className="w-4 h-4 fill-white/20 shrink-0" />
+          <span className="hidden sm:inline text-xs font-extrabold">
             {isCreator ? 'Creator Feedback Inbox' : 'Feedback Chat'}
           </span>
+          <span className="sm:hidden text-[11px] font-extrabold">Chat</span>
           {unrepliedCount > 0 && (
             <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-amber-300 text-pink-950 font-mono">
               {unrepliedCount}
@@ -164,7 +165,7 @@ export const FeedbackChatBox: React.FC<FeedbackChatBoxProps> = ({ currentUser })
 
       {/* Expanded Chat Box Panel */}
       {isOpen && (
-        <div className="fixed bottom-20 md:bottom-5 right-3 sm:right-5 z-50 w-[calc(100vw-24px)] max-w-sm bg-white rounded-3xl shadow-2xl border-2 border-pink-300 overflow-hidden flex flex-col max-h-[75vh] animate-in slide-in-from-bottom-4 duration-200 text-pink-950">
+        <div className="fixed bottom-20 md:bottom-5 inset-x-3 sm:inset-x-auto sm:right-5 z-50 sm:w-96 bg-white rounded-3xl shadow-2xl border-2 border-pink-300 overflow-hidden flex flex-col max-h-[72dvh] animate-in slide-in-from-bottom-4 duration-200 text-pink-950">
           {/* Header */}
           <div className="p-3.5 bg-gradient-to-r from-pink-500 via-rose-500 to-fuchsia-600 text-white flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2.5 min-w-0">

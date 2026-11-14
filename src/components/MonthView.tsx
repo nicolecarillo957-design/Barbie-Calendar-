@@ -11,6 +11,7 @@ interface MonthViewProps {
   onSelectEvent: (event: CalendarEvent) => void;
   onSlotClick: (dateStr: string, timeStr: string) => void;
   onSelectDate: (date: Date) => void;
+  readOnly?: boolean;
 }
 
 export const MonthView: React.FC<MonthViewProps> = ({
@@ -20,6 +21,7 @@ export const MonthView: React.FC<MonthViewProps> = ({
   onSelectEvent,
   onSlotClick,
   onSelectDate,
+  readOnly = false,
 }) => {
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -71,14 +73,15 @@ export const MonthView: React.FC<MonthViewProps> = ({
       {/* Day of Week Header */}
       <div className="grid grid-cols-7 border-b border-pink-200 bg-pink-100/50 shrink-0">
         {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, idx) => (
-          <div key={idx} className="py-2.5 px-3 text-center text-xs font-bold text-pink-700 uppercase tracking-wider">
-            {day}
+          <div key={idx} className="py-2 px-1 sm:px-3 text-center text-[10px] sm:text-xs font-bold text-pink-700 uppercase tracking-wider">
+            <span className="sm:hidden">{day[0]}</span>
+            <span className="hidden sm:inline">{day}</span>
           </div>
         ))}
       </div>
 
       {/* Month Days Grid */}
-      <div className={`flex-1 grid grid-cols-7 ${monthCells.length === 42 ? 'grid-rows-6' : 'grid-rows-5'} divide-x divide-y divide-pink-200 border-b border-pink-200`}>
+      <div className={`flex-1 overflow-y-auto grid grid-cols-7 ${monthCells.length === 42 ? 'sm:grid-rows-6' : 'sm:grid-rows-5'} divide-x divide-y divide-pink-200 border-b border-pink-200 pb-20 sm:pb-0`}>
         {monthCells.map((day, i) => {
           const dateStr = formatDateKey(day);
           const isCurrentMonth = day.getMonth() === month;
@@ -91,8 +94,8 @@ export const MonthView: React.FC<MonthViewProps> = ({
           return (
             <div
               key={i}
-              onClick={() => onSlotClick(dateStr, '09:00')}
-              className={`p-1.5 flex flex-col justify-between transition-colors overflow-hidden group hover:bg-pink-100/40 cursor-pointer ${
+              onClick={() => (readOnly ? onSelectDate(day) : onSlotClick(dateStr, '09:00'))}
+              className={`min-h-[88px] sm:min-h-0 p-1 sm:p-1.5 flex flex-col justify-between transition-colors overflow-hidden group hover:bg-pink-100/40 cursor-pointer ${
                 !isCurrentMonth
                   ? 'bg-pink-50/20 text-pink-300'
                   : 'bg-white/80 text-pink-950'
@@ -106,7 +109,7 @@ export const MonthView: React.FC<MonthViewProps> = ({
                       e.stopPropagation();
                       onSelectDate(day);
                     }}
-                    className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold transition-colors ${
+                    className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-[11px] sm:text-xs font-bold transition-colors ${
                       isToday
                         ? 'bg-pink-500 text-white shadow-xs'
                         : isCurrentMonth
@@ -119,16 +122,18 @@ export const MonthView: React.FC<MonthViewProps> = ({
                   </button>
                 </div>
 
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSlotClick(dateStr, '09:00');
-                  }}
-                  className="opacity-0 group-hover:opacity-100 text-pink-400 hover:text-pink-600 p-0.5 rounded transition-opacity"
-                  title="Add timebox"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                </button>
+                {!readOnly && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSlotClick(dateStr, '09:00');
+                    }}
+                    className="opacity-60 sm:opacity-0 sm:group-hover:opacity-100 text-pink-400 hover:text-pink-600 p-0.5 rounded transition-opacity"
+                    title="Add timebox"
+                  >
+                    <Plus className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                  </button>
+                )}
               </div>
 
               {/* Event pills */}
@@ -142,14 +147,14 @@ export const MonthView: React.FC<MonthViewProps> = ({
                         e.stopPropagation();
                         onSelectEvent(ev);
                       }}
-                      className={`px-1.5 py-0.5 text-[11px] rounded-lg font-semibold truncate flex items-center gap-1 border-l-2 shadow-2xs ${
+                      className={`px-1 sm:px-1.5 py-0.5 text-[10px] sm:text-[11px] rounded-md sm:rounded-lg font-semibold truncate flex items-center gap-1 border-l-2 shadow-2xs ${
                         ev.isCompleted
                           ? 'bg-pink-100 text-pink-400 border-pink-300 line-through'
                           : `${cat.bgClass} ${cat.borderClass}`
                       }`}
                       title={`${ev.title} (${formatFriendlyTime(ev.startTime)} - ${formatFriendlyTime(ev.endTime)})`}
                     >
-                      <span className="font-mono text-[9px] opacity-75 shrink-0">
+                      <span className="hidden sm:inline font-mono text-[9px] opacity-75 shrink-0">
                         {ev.startTime}
                       </span>
                       <span className="truncate">{ev.title}</span>
@@ -163,9 +168,9 @@ export const MonthView: React.FC<MonthViewProps> = ({
                       e.stopPropagation();
                       onSelectDate(day);
                     }}
-                    className="text-[10px] font-bold text-pink-600 hover:text-pink-800 pl-1 block transition-colors"
+                    className="text-[9px] sm:text-[10px] font-bold text-pink-600 hover:text-pink-800 pl-0.5 sm:pl-1 block transition-colors"
                   >
-                    +{overflowCount} more 💖
+                    +{overflowCount} more
                   </button>
                 )}
               </div>

@@ -1,9 +1,18 @@
 import { initializeApp } from 'firebase/app';
 import {
+  createUserWithEmailAndPassword,
+  EmailAuthProvider,
   getAuth,
   GoogleAuthProvider,
+  linkWithCredential,
+  reauthenticateWithCredential,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
+  updatePassword,
+  updateProfile,
   User,
 } from 'firebase/auth';
 import {
@@ -25,6 +34,7 @@ import {
   StudentStreakData,
   TaskEvidence,
   UnscheduledTask,
+  UserRole,
 } from './types/calendar';
 
 export const CREATOR_ADMIN_EMAIL = 'nicolecarillo957@gmail.com';
@@ -132,6 +142,69 @@ export async function signInWithGmail(): Promise<User> {
   return result.user;
 }
 
+export async function registerWithEmailPassword(
+  displayName: string,
+  email: string,
+  password: string
+): Promise<User> {
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanName = displayName.trim().slice(0, 120) || cleanEmail.split('@')[0] || 'Student';
+  const result = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+  await updateProfile(result.user, { displayName: cleanName });
+  await sendEmailVerification(result.user);
+  return result.user;
+}
+
+export async function signInWithEmailPassword(
+  email: string,
+  password: string
+): Promise<User> {
+  const result = await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
+  return result.user;
+}
+
+export async function resendVerificationEmail(): Promise<void> {
+  if (!auth.currentUser) throw new Error('No signed-in user found.');
+  await sendEmailVerification(auth.currentUser);
+}
+
+export async function reloadAndVerifyUser(): Promise<User | null> {
+  if (!auth.currentUser) return null;
+  await auth.currentUser.reload();
+  await auth.currentUser.getIdToken(true);
+  return auth.currentUser;
+}
+
+export async function sendPasswordReset(email: string): Promise<void> {
+  await sendPasswordResetEmail(auth, email.trim().toLowerCase());
+}
+
+export function hasPasswordProvider(user: User | null): boolean {
+  if (!user) return false;
+  return user.providerData.some((p) => p.providerId === 'password');
+}
+
+export async function setOrUpdateAccountPassword(
+  newPassword: string,
+  currentPassword?: string
+): Promise<void> {
+  const user = auth.currentUser;
+  if (!user || !user.email) {
+    throw new Error('You must be signed in with a valid email to set a password.');
+  }
+
+  if (hasPasswordProvider(user)) {
+    if (currentPassword) {
+      const cred = EmailAuthProvider.credential(user.email, currentPassword);
+      await reauthenticateWithCredential(user, cred);
+    }
+    await updatePassword(user, newPassword);
+  } else {
+    const cred = EmailAuthProvider.credential(user.email, newPassword);
+    await linkWithCredential(user, cred);
+  }
+}
+
 export async function signOutUser(): Promise<void> {
   await signOut(auth);
 }
@@ -143,7 +216,8 @@ export async function syncUserProfileToFirestore(
   user: User,
   streakData: StudentStreakData,
   displayNameOverride?: string,
-  teacherEmail?: string
+  teacherEmail?: string,
+  role?: UserRole
 ): Promise<void> {
   const path = `users/${user.uid}`;
   const ref = doc(db, 'users', user.uid);
@@ -169,6 +243,7 @@ export async function syncUserProfileToFirestore(
         updatedAt: serverTimestamp(),
       };
       if (user.photoURL) payload.photoURL = user.photoURL.slice(0, 500);
+      if (role !== undefined) payload.role = role;
       if (normalizedTeacher !== undefined) payload.teacherEmail = normalizedTeacher;
       if (streakData.lastActiveDate) payload.lastActiveDate = streakData.lastActiveDate.slice(0, 20);
 
@@ -188,6 +263,11 @@ export async function syncUserProfileToFirestore(
       } else if (existingData?.photoURL) {
         updatePayload.photoURL = existingData.photoURL;
       }
+      if (role !== undefined) {
+        updatePayload.role = role;
+      } else if (existingData?.role !== undefined) {
+        updatePayload.role = existingData.role;
+      }
       if (normalizedTeacher !== undefined) {
         updatePayload.teacherEmail = normalizedTeacher;
       } else if (existingData?.teacherEmail !== undefined) {
@@ -204,6 +284,19 @@ export async function syncUserProfileToFirestore(
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
+}
+
+/**
+ * Updates whether the user uses EduTrack as a Student (planner + proofs + streak)
+ * or Teacher (monitoring-only student calendars + verification).
+ */
+export async function updateUserRoleInFirestore(
+  user: User,
+  role: UserRole,
+  streakData: StudentStreakData,
+  displayNameOverride?: string
+): Promise<void> {
+  await syncUserProfileToFirestore(user, streakData, displayNameOverride, undefined, role);
 }
 
 /**

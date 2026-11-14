@@ -1,20 +1,30 @@
-import React, { useRef, useState } from 'react';
-import { CalendarEvent, UnscheduledTask } from '../types/calendar';
+import React, { useMemo, useRef, useState } from 'react';
+import { CalendarEvent, UnscheduledTask, UserRole } from '../types/calendar';
 import { downloadFile, exportToIcs } from '../utils/dateUtils';
-import { 
-  Download, 
-  Upload, 
-  RotateCcw, 
-  Check, 
+import { auth, hasPasswordProvider, setOrUpdateAccountPassword } from '../firebase';
+import { evaluatePasswordStrength, mapFirebaseAuthError } from '../utils/passwordUtils';
+import {
+  Download,
+  Upload,
+  RotateCcw,
   X,
   Sliders,
   Sparkles,
   Heart,
   Mail,
-  LogOut
+  LogOut,
+  Lock,
+  Eye,
+  EyeOff,
+  CheckCircle2,
+  AlertCircle,
+  ShieldCheck,
+  BookOpen,
+  GraduationCap,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { cuteSound } from '../utils/cuteSound';
-
 import { CalendarThemeId, THEME_CONFIGS } from '../types/theme';
 
 interface SettingsModalProps {
@@ -32,6 +42,8 @@ interface SettingsModalProps {
   userEmail?: string;
   teacherEmail?: string;
   onUpdateTeacherEmail?: (email: string) => Promise<void>;
+  userRole?: UserRole | null;
+  onChangeUserRole?: (role: UserRole) => Promise<void>;
   onSignOut?: () => void;
 }
 
@@ -50,6 +62,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   userEmail,
   teacherEmail = '',
   onUpdateTeacherEmail,
+  userRole = 'student',
+  onChangeUserRole,
   onSignOut,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -57,6 +71,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [localTeacherEmail, setLocalTeacherEmail] = useState(teacherEmail);
   const [savingTeacher, setSavingTeacher] = useState(false);
   const [teacherSavedMsg, setTeacherSavedMsg] = useState(false);
+  const [nameSavedMsg, setNameSavedMsg] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [switchingRole, setSwitchingRole] = useState(false);
+  const [copiedTeacherEmail, setCopiedTeacherEmail] = useState(false);
+  const isTeacherAccount = userRole === 'teacher';
+
+  // Password Security State
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [passwordStatusMsg, setPasswordStatusMsg] = useState<string | null>(null);
+  const [passwordErrorMsg, setPasswordErrorMsg] = useState<string | null>(null);
+
+  const userHasPassword = hasPasswordProvider(auth.currentUser);
+  const newPasswordStrength = useMemo(
+    () => evaluatePasswordStrength(newPassword),
+    [newPassword]
+  );
 
   React.useEffect(() => {
     setLocalStudentName(studentName);
@@ -71,18 +105,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleExportIcs = () => {
     cuteSound.playSparkle();
     const icsContent = exportToIcs(events);
-    downloadFile(icsContent, 'barbie-calendar-schedule.ics', 'text/calendar;charset=utf-8');
+    downloadFile(icsContent, 'edutrack-calendar-schedule.ics', 'text/calendar;charset=utf-8');
   };
 
   const handleExportJson = () => {
     cuteSound.playSparkle();
     const backup = JSON.stringify({ events, tasks, exportedAt: new Date().toISOString() }, null, 2);
-    downloadFile(backup, 'barbie-calendar-backup.json', 'application/json');
+    downloadFile(backup, 'edutrack-calendar-backup.json', 'application/json');
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setImportError(null);
 
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -96,45 +131,86 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           cuteSound.playCelebrationFanfare();
           onClose();
         } else {
-          alert('Invalid backup format. Missing events array.');
+          setImportError('Invalid backup format. Missing events array.');
         }
-      } catch (err) {
-        alert('Could not parse JSON file.');
+      } catch {
+        setImportError('Could not parse JSON backup file.');
       }
     };
     reader.readAsText(file);
   };
 
+  const handleSavePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordErrorMsg(null);
+    setPasswordStatusMsg(null);
+
+    if (userHasPassword && !currentPassword) {
+      setPasswordErrorMsg('Please enter your current password first.');
+      return;
+    }
+    if (!newPasswordStrength.isValid) {
+      setPasswordErrorMsg(
+        'Password must be at least 8 characters and include uppercase, lowercase, and a number.'
+      );
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      setPasswordErrorMsg('New passwords do not match.');
+      return;
+    }
+
+    setSavingPassword(true);
+    try {
+      await setOrUpdateAccountPassword(newPassword, userHasPassword ? currentPassword : undefined);
+      cuteSound.playCelebrationFanfare();
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+      setPasswordStatusMsg(
+        userHasPassword
+          ? 'Your account password has been updated securely!'
+          : 'Safety password added! You can now sign in using your email + password anytime.'
+      );
+    } catch (err) {
+      setPasswordErrorMsg(mapFirebaseAuthError(err));
+    } finally {
+      setSavingPassword(false);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 bg-pink-950/50 backdrop-blur-2xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl border-2 border-pink-300 overflow-hidden text-pink-950 animate-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 bg-pink-950/50 backdrop-blur-2xs flex items-center justify-center p-2 sm:p-4">
+      <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl border-2 border-pink-300 overflow-hidden text-pink-950 animate-in zoom-in-95 duration-200 max-h-[92dvh] flex flex-col">
         {/* Header */}
-        <div className="p-4 bg-gradient-to-r from-pink-200 via-rose-100 to-pink-200 border-b border-pink-300 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="w-8 h-8 rounded-full bg-white text-pink-600 flex items-center justify-center shadow-xs border border-pink-300">
+        <div className="p-4 bg-gradient-to-r from-pink-200 via-rose-100 to-pink-200 border-b border-pink-300 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="w-8 h-8 rounded-full bg-white text-pink-600 flex items-center justify-center shadow-xs border border-pink-300 shrink-0">
               <Sliders className="w-4 h-4 text-pink-600" />
             </span>
-            <div>
-              <h3 className="text-sm font-extrabold text-pink-950 flex items-center gap-1.5">
+            <div className="min-w-0">
+              <h3 className="text-sm font-extrabold text-pink-950 flex items-center gap-1.5 truncate">
                 <span>EduTrack Settings &amp; Sync</span>
                 <span>🎀</span>
               </h3>
-              <p className="text-[11px] text-pink-700 font-medium">Manage account, teacher sync &amp; calendar export</p>
+              <p className="text-[11px] text-pink-700 font-medium truncate">
+                Password safety, teacher sync &amp; export
+              </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-pink-700 hover:text-pink-900 hover:bg-pink-200/70 rounded-xl transition-colors"
+            className="p-1.5 text-pink-700 hover:text-pink-900 hover:bg-pink-200/70 rounded-xl transition-colors shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-6 space-y-6 max-h-[75vh] overflow-y-auto">
+        <div className="p-4 sm:p-6 space-y-5 flex-1 overflow-y-auto">
           {/* Section 0: Calendar Color Theme Customizer */}
           {onSelectTheme && (
-            <div className="p-4 bg-pink-50/70 border border-pink-200 rounded-2xl">
+            <div className="p-3.5 sm:p-4 bg-pink-50/70 border border-pink-200 rounded-2xl">
               <div className="flex items-center justify-between mb-1.5">
                 <div className="flex items-center gap-1.5 text-pink-900 font-extrabold text-xs uppercase tracking-wider">
                   <span>🎨</span>
@@ -145,10 +221,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </span>
               </div>
               <p className="text-xs text-pink-700 mb-3 font-medium">
-                Choose your personal calendar aesthetic: Pink, Blue, Red, Orange, Black, Yellow, White, Green, Purple, or Rainbow!
+                Pick Pink, Blue, Red, Orange, Black, Yellow, White, Green, Purple, or Rainbow!
               </p>
 
-              <div className="grid grid-cols-5 gap-2">
+              <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
                 {(
                   [
                     'pink',
@@ -168,11 +244,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   return (
                     <button
                       key={themeId}
+                      type="button"
                       onClick={() => {
                         cuteSound.playCelebrationFanfare();
                         onSelectTheme(themeId);
                       }}
-                      className={`p-2 rounded-xl border flex flex-col items-center gap-1 transition-all ${
+                      className={`p-1.5 sm:p-2 rounded-xl border flex flex-col items-center gap-1 transition-all ${
                         isSelected
                           ? 'border-pink-500 bg-white ring-2 ring-pink-400 shadow-sm'
                           : 'border-pink-200 hover:border-pink-300 bg-white/70 hover:bg-white'
@@ -180,12 +257,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       title={cfg.name}
                     >
                       <span
-                        className="w-6 h-6 rounded-full border shadow-2xs flex items-center justify-center text-xs"
+                        className="w-5 h-5 sm:w-6 sm:h-6 rounded-full border shadow-2xs flex items-center justify-center text-[10px] sm:text-xs"
                         style={{ background: cfg.swatch, borderColor: cfg.swatchBorder }}
                       >
                         {isSelected ? '✓' : ''}
                       </span>
-                      <span className="text-[10px] font-black text-slate-800 capitalize truncate w-full text-center">
+                      <span className="text-[9px] sm:text-[10px] font-black text-slate-800 capitalize truncate w-full text-center">
                         {themeId}
                       </span>
                     </button>
@@ -195,27 +272,181 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           )}
 
-          {/* Section 0.2: Student Profile & Teacher Monitoring */}
-          <div className="p-4 bg-gradient-to-br from-amber-50/60 to-pink-50/70 border border-amber-200/80 rounded-2xl">
-            <div className="flex items-center justify-between mb-2">
+          {/* Section 0.1: Account Safety & Password */}
+          <div className="p-3.5 sm:p-4 bg-gradient-to-br from-emerald-50/60 to-pink-50/70 border border-emerald-200 rounded-2xl space-y-3">
+            <div className="flex items-start justify-between gap-2">
               <div className="flex items-center gap-2">
-                <span className="w-8 h-8 rounded-full bg-white text-amber-600 flex items-center justify-center border border-amber-300 shadow-2xs text-base">
-                  🎓
+                <span className="w-8 h-8 rounded-full bg-white text-emerald-600 flex items-center justify-center border border-emerald-200 shadow-2xs shrink-0">
+                  <Lock className="w-4 h-4" />
                 </span>
                 <div>
-                  <h4 className="text-xs font-black uppercase tracking-wider text-pink-950 flex items-center gap-1.5">
-                    <span>Student Profile & Teacher Monitoring</span>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-pink-950">
+                    Account Safety &amp; Password
                   </h4>
                   <p className="text-[11px] text-pink-700 font-medium">
-                    Set your student name so your teacher knows whose study streaks and photo evidence they are reviewing.
+                    {userHasPassword
+                      ? 'Password protection active. Update your password below anytime.'
+                      : 'Create a backup safety password for your Gmail account.'}
                   </p>
                 </div>
               </div>
+              <span
+                className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold shrink-0 flex items-center gap-1 ${
+                  userHasPassword
+                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                    : 'bg-amber-100 text-amber-800 border border-amber-300'
+                }`}
+              >
+                <ShieldCheck className="w-3 h-3" />
+                <span>{userHasPassword ? 'Protected' : 'Set Password'}</span>
+              </span>
             </div>
 
+            {passwordErrorMsg && (
+              <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-300 text-rose-800 text-[11px] flex items-start gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0 mt-0.5" />
+                <span>{passwordErrorMsg}</span>
+              </div>
+            )}
+
+            {passwordStatusMsg && (
+              <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-800 text-[11px] font-semibold flex items-start gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                <span>{passwordStatusMsg}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSavePassword} className="space-y-2">
+              {userHasPassword && (
+                <input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="Current password"
+                  autoComplete="current-password"
+                  className="w-full text-xs px-3 py-2 bg-white border border-pink-200 rounded-xl text-pink-950 focus:outline-none focus:ring-1 focus:ring-pink-400"
+                />
+              )}
+              <div className="relative">
+                <input
+                  type={showNewPassword ? 'text' : 'password'}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="New password (8+ chars, A-Z, a-z, 0-9)"
+                  autoComplete="new-password"
+                  className="w-full text-xs pl-3 pr-9 py-2 bg-white border border-pink-200 rounded-xl text-pink-950 focus:outline-none focus:ring-1 focus:ring-pink-400"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPassword((p) => !p)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-pink-400 hover:text-pink-700"
+                >
+                  {showNewPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+              <input
+                type={showNewPassword ? 'text' : 'password'}
+                value={confirmNewPassword}
+                onChange={(e) => setConfirmNewPassword(e.target.value)}
+                placeholder="Confirm new password"
+                autoComplete="new-password"
+                className="w-full text-xs px-3 py-2 bg-white border border-pink-200 rounded-xl text-pink-950 focus:outline-none focus:ring-1 focus:ring-pink-400"
+              />
+              <button
+                type="submit"
+                disabled={savingPassword}
+                className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-colors"
+              >
+                {savingPassword
+                  ? 'Saving password...'
+                  : userHasPassword
+                  ? 'Update Password 🔐'
+                  : 'Create Safety Password 🔐'}
+              </button>
+            </form>
+          </div>
+
+          {/* Section 0.2: Role Switcher & Profile */}
+          <div className="p-3.5 sm:p-4 bg-gradient-to-br from-amber-50/60 to-pink-50/70 border border-amber-200/80 rounded-2xl space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="w-8 h-8 rounded-full bg-white text-amber-600 flex items-center justify-center border border-amber-300 shadow-2xs text-base shrink-0">
+                {isTeacherAccount ? '👩‍🏫' : '🎒'}
+              </span>
+              <div>
+                <h4 className="text-xs font-black uppercase tracking-wider text-pink-950">
+                  Account Role &amp; Profile
+                </h4>
+                <p className="text-[11px] text-pink-700 font-medium">
+                  {isTeacherAccount
+                    ? 'Teacher mode: monitor assigned student calendars & inspect photo proofs.'
+                    : 'Student mode: plan timeboxes, attach photo proof for points, & link a teacher.'}
+                </p>
+              </div>
+            </div>
+
+            {onChangeUserRole && (
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={switchingRole}
+                  onClick={async () => {
+                    if (userRole === 'student') return;
+                    setSwitchingRole(true);
+                    try {
+                      await onChangeUserRole('student');
+                      cuteSound.playSparkle();
+                    } finally {
+                      setSwitchingRole(false);
+                    }
+                  }}
+                  className={`p-2.5 rounded-xl border text-left transition-all flex items-center gap-2 ${
+                    !isTeacherAccount
+                      ? 'bg-pink-500 text-white border-pink-600 shadow-xs'
+                      : 'bg-white text-pink-950 border-pink-200 hover:bg-pink-50'
+                  }`}
+                >
+                  <BookOpen className="w-4 h-4 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="text-xs font-black">Student</div>
+                    <div className={`text-[10px] truncate ${!isTeacherAccount ? 'text-pink-100' : 'text-pink-600'}`}>
+                      Planner &amp; Streaks
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={switchingRole}
+                  onClick={async () => {
+                    if (userRole === 'teacher') return;
+                    setSwitchingRole(true);
+                    try {
+                      await onChangeUserRole('teacher');
+                      cuteSound.playSparkle();
+                    } finally {
+                      setSwitchingRole(false);
+                    }
+                  }}
+                  className={`p-2.5 rounded-xl border text-left transition-all flex items-center gap-2 ${
+                    isTeacherAccount
+                      ? 'bg-purple-600 text-white border-purple-700 shadow-xs'
+                      : 'bg-white text-pink-950 border-pink-200 hover:bg-purple-50'
+                  }`}
+                >
+                  <GraduationCap className="w-4 h-4 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="text-xs font-black">Teacher</div>
+                    <div className={`text-[10px] truncate ${isTeacherAccount ? 'text-purple-100' : 'text-purple-700'}`}>
+                      Monitor Students
+                    </div>
+                  </div>
+                </button>
+              </div>
+            )}
+
             {userEmail && (
-              <div className="mt-3 p-2.5 bg-white/90 rounded-xl border border-pink-200 flex items-center justify-between gap-2 text-xs">
-                <div className="flex items-center gap-1.5 min-w-0">
+              <div className="p-2.5 bg-white/90 rounded-xl border border-pink-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-1.5 min-w-0 flex-1">
                   <Mail className="w-3.5 h-3.5 text-pink-500 shrink-0" />
                   <span className="font-bold text-pink-900 truncate">{userEmail}</span>
                 </div>
@@ -235,12 +466,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             )}
 
-            <div className="flex items-center gap-2 mt-3">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
               <input
                 type="text"
                 value={localStudentName}
                 onChange={(e) => setLocalStudentName(e.target.value)}
-                placeholder="Enter Student Name (e.g., Nicole C.)"
+                placeholder={isTeacherAccount ? 'Enter Teacher Name (e.g., Ms. Cruz)' : 'Enter Student Name (e.g., Nicole C.)'}
                 className="flex-1 text-xs px-3 py-2 bg-white border border-pink-200 rounded-xl text-pink-950 focus:outline-none focus:ring-1 focus:ring-pink-400 font-bold"
               />
               <button
@@ -249,6 +480,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   if (onUpdateStudentName && localStudentName.trim()) {
                     onUpdateStudentName(localStudentName.trim());
                     cuteSound.playSparkle();
+                    setNameSavedMsg(true);
+                    setTimeout(() => setNameSavedMsg(false), 2500);
                   }
                 }}
                 className="px-3 py-2 bg-pink-500 hover:bg-pink-600 text-white font-bold text-xs rounded-xl shadow-2xs transition-colors shrink-0"
@@ -256,45 +489,73 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 Save Name 💖
               </button>
             </div>
+            {nameSavedMsg && (
+              <p className="text-[11px] text-emerald-700 font-bold">Display name saved!</p>
+            )}
 
-            {onUpdateTeacherEmail && (
-              <div className="mt-3 pt-3 border-t border-amber-200/70 space-y-1.5">
-                <label className="block text-[11px] font-bold text-amber-950">
-                  Assigned Teacher's Gmail (lets your teacher monitor your calendar &amp; proofs):
-                </label>
+            {isTeacherAccount && userEmail ? (
+              <div className="mt-2 pt-2 border-t border-purple-200/70 space-y-1.5">
+                <span className="block text-[11px] font-bold text-purple-950">
+                  Share this Teacher Gmail with your students so they can link their calendar:
+                </span>
                 <div className="flex items-center gap-2">
-                  <input
-                    type="email"
-                    value={localTeacherEmail}
-                    onChange={(e) => setLocalTeacherEmail(e.target.value)}
-                    placeholder="teacher@gmail.com"
-                    className="flex-1 text-xs px-3 py-2 bg-white border border-amber-200 rounded-xl text-pink-950 focus:outline-none focus:ring-1 focus:ring-amber-400 font-medium"
-                  />
+                  <div className="flex-1 text-xs px-3 py-2 bg-white border border-purple-200 rounded-xl font-mono text-purple-950 truncate">
+                    {userEmail}
+                  </div>
                   <button
                     type="button"
-                    disabled={savingTeacher}
-                    onClick={async () => {
-                      setSavingTeacher(true);
-                      try {
-                        await onUpdateTeacherEmail(localTeacherEmail.trim().toLowerCase());
-                        cuteSound.playSparkle();
-                        setTeacherSavedMsg(true);
-                        setTimeout(() => setTeacherSavedMsg(false), 3000);
-                      } finally {
-                        setSavingTeacher(false);
-                      }
+                    onClick={() => {
+                      navigator.clipboard?.writeText(userEmail);
+                      setCopiedTeacherEmail(true);
+                      setTimeout(() => setCopiedTeacherEmail(false), 2000);
                     }}
-                    className="px-3 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-2xs transition-colors shrink-0"
+                    className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow-2xs flex items-center gap-1 shrink-0"
                   >
-                    {savingTeacher ? 'Linking...' : 'Link Teacher 👩‍🏫'}
+                    {copiedTeacherEmail ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedTeacherEmail ? 'Copied!' : 'Copy'}</span>
                   </button>
                 </div>
-                {teacherSavedMsg && (
-                  <p className="text-[11px] text-emerald-700 font-bold">
-                    Teacher Gmail linked! They can now monitor your calendar and photo proofs.
-                  </p>
-                )}
               </div>
+            ) : (
+              onUpdateTeacherEmail && (
+                <div className="mt-2 pt-2 border-t border-amber-200/70 space-y-1.5">
+                  <label className="block text-[11px] font-bold text-amber-950">
+                    Assigned Teacher&apos;s Gmail (lets your teacher monitor your calendar &amp; proofs):
+                  </label>
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <input
+                      type="email"
+                      value={localTeacherEmail}
+                      onChange={(e) => setLocalTeacherEmail(e.target.value)}
+                      placeholder="teacher@gmail.com"
+                      className="flex-1 text-xs px-3 py-2 bg-white border border-amber-200 rounded-xl text-pink-950 focus:outline-none focus:ring-1 focus:ring-amber-400 font-medium"
+                    />
+                    <button
+                      type="button"
+                      disabled={savingTeacher}
+                      onClick={async () => {
+                        setSavingTeacher(true);
+                        try {
+                          await onUpdateTeacherEmail(localTeacherEmail.trim().toLowerCase());
+                          cuteSound.playSparkle();
+                          setTeacherSavedMsg(true);
+                          setTimeout(() => setTeacherSavedMsg(false), 3000);
+                        } finally {
+                          setSavingTeacher(false);
+                        }
+                      }}
+                      className="px-3 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-2xs transition-colors shrink-0"
+                    >
+                      {savingTeacher ? 'Linking...' : 'Link Teacher 👩‍🏫'}
+                    </button>
+                  </div>
+                  {teacherSavedMsg && (
+                    <p className="text-[11px] text-emerald-700 font-bold">
+                      Teacher Gmail linked! They can now monitor your calendar and photo proofs.
+                    </p>
+                  )}
+                </div>
+              )
             )}
 
             {onOpenTeacherMonitor && (
@@ -304,7 +565,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   onClose();
                   onOpenTeacherMonitor();
                 }}
-                className="mt-3 w-full py-2 bg-white hover:bg-amber-50 border border-amber-300 rounded-xl text-xs font-bold text-amber-900 shadow-2xs flex items-center justify-center gap-2 transition-colors"
+                className="w-full py-2 bg-white hover:bg-amber-50 border border-amber-300 rounded-xl text-xs font-bold text-amber-900 shadow-2xs flex items-center justify-center gap-2 transition-colors"
               >
                 <span>👩‍🏫 Open Teacher Monitoring Dashboard</span>
               </button>
@@ -312,85 +573,97 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
 
           {/* Section 1: Standard iCal Export */}
-          <div className="p-4 bg-pink-50/70 border border-pink-200 rounded-2xl">
+          <div className="p-3.5 sm:p-4 bg-pink-50/70 border border-pink-200 rounded-2xl">
             <div className="flex items-center gap-1.5 mb-1 text-pink-900 font-extrabold text-xs uppercase tracking-wider">
               <Sparkles className="w-3.5 h-3.5 text-pink-500 fill-pink-300" />
-              <h4>Google Calendar & iCal Export 💖</h4>
+              <h4>Google Calendar &amp; iCal Export 💖</h4>
             </div>
             <p className="text-xs text-pink-700 mb-3 font-medium">
-              Export your Barbie timeboxes into a standard <span className="font-mono bg-pink-100 px-1 py-0.5 rounded text-pink-800 font-bold">.ics</span> file that easily imports into Google Calendar, Apple Calendar, or Outlook.
+              Export your timeboxes into a standard <span className="font-mono bg-pink-100 px-1 py-0.5 rounded text-pink-800 font-bold">.ics</span> file for Google Calendar, Apple Calendar, or Outlook.
             </p>
             <button
+              type="button"
               onClick={handleExportIcs}
               className="w-full py-2.5 px-4 bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white font-extrabold text-xs rounded-xl shadow-xs flex items-center justify-center gap-2 transition-transform active:scale-98"
             >
-              <Download className="w-4 h-4" />
-              Download Barbie iCalendar (.ics) File ({events.length} blocks) ✨
+              <Download className="w-4 h-4 shrink-0" />
+              <span>Download iCalendar (.ics) ({events.length} blocks) ✨</span>
             </button>
           </div>
 
-          {/* Section 2: Full Workspace Backup & Restore */}
-          <div className="p-4 bg-pink-50/70 border border-pink-200 rounded-2xl">
-            <div className="flex items-center gap-1.5 mb-1 text-pink-900 font-extrabold text-xs uppercase tracking-wider">
-              <Heart className="w-3.5 h-3.5 text-pink-500 fill-pink-300" />
-              <h4>Backup & Restore 🌸</h4>
-            </div>
-            <p className="text-xs text-pink-700 mb-3 font-medium">
-              Save a full backup of all scheduled events, reminders, checklists, and backlog tasks, or restore your previous schedule anytime.
-            </p>
+          {/* Section 2 & 3: Backup/Restore & Clear Schedule (Student Planner Only) */}
+          {!isTeacherAccount && (
+            <>
+              <div className="p-3.5 sm:p-4 bg-pink-50/70 border border-pink-200 rounded-2xl">
+                <div className="flex items-center gap-1.5 mb-1 text-pink-900 font-extrabold text-xs uppercase tracking-wider">
+                  <Heart className="w-3.5 h-3.5 text-pink-500 fill-pink-300" />
+                  <h4>Backup &amp; Restore 🌸</h4>
+                </div>
+                <p className="text-xs text-pink-700 mb-3 font-medium">
+                  Save a full backup of your scheduled events and tasks, or restore them anytime.
+                </p>
 
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={handleExportJson}
-                className="py-2 px-3 bg-white hover:bg-pink-100 text-pink-800 font-bold text-xs rounded-xl border border-pink-300 flex items-center justify-center gap-1.5 transition-colors shadow-2xs"
-              >
-                <Download className="w-3.5 h-3.5 text-pink-600" />
-                Backup to JSON 🎀
-              </button>
+                {importError && (
+                  <p className="text-xs text-rose-700 font-bold mb-2">{importError}</p>
+                )}
 
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="py-2 px-3 bg-white hover:bg-pink-100 text-pink-800 font-bold text-xs rounded-xl border border-pink-300 flex items-center justify-center gap-1.5 transition-colors shadow-2xs"
-              >
-                <Upload className="w-3.5 h-3.5 text-pink-600" />
-                Restore JSON ✨
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".json"
-                onChange={handleFileChange}
-                className="hidden"
-              />
-            </div>
-          </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={handleExportJson}
+                    className="py-2 px-3 bg-white hover:bg-pink-100 text-pink-800 font-bold text-xs rounded-xl border border-pink-300 flex items-center justify-center gap-1.5 transition-colors shadow-2xs"
+                  >
+                    <Download className="w-3.5 h-3.5 text-pink-600" />
+                    Backup to JSON 🎀
+                  </button>
 
-          {/* Section 3: Clear Schedule & Start Fresh */}
-          <div className="p-4 bg-rose-50/60 border border-rose-200 rounded-2xl">
-            <h4 className="text-xs font-extrabold uppercase tracking-wider text-rose-800 mb-1 flex items-center gap-1">
-              <span>Clear Schedule & Start Fresh</span>
-              <span>🧁</span>
-            </h4>
-            <p className="text-xs text-rose-700 mb-3 font-medium">
-              Remove all calendar events so you can plan your own custom schedule from scratch.
-            </p>
-            <button
-              onClick={() => {
-                onResetData();
-                cuteSound.playCelebrationFanfare();
-                onClose();
-              }}
-              className="py-2 px-3.5 text-rose-700 hover:text-white hover:bg-rose-500 bg-white text-xs font-bold rounded-xl border border-rose-300 transition-colors flex items-center gap-1.5 shadow-2xs"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              Clear Schedule (Start Fresh) 🌸
-            </button>
-          </div>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="py-2 px-3 bg-white hover:bg-pink-100 text-pink-800 font-bold text-xs rounded-xl border border-pink-300 flex items-center justify-center gap-1.5 transition-colors shadow-2xs"
+                  >
+                    <Upload className="w-3.5 h-3.5 text-pink-600" />
+                    Restore JSON ✨
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".json"
+                    onChange={handleFileChange}
+                    className="hidden"
+                  />
+                </div>
+              </div>
+
+              <div className="p-3.5 sm:p-4 bg-rose-50/60 border border-rose-200 rounded-2xl">
+                <h4 className="text-xs font-extrabold uppercase tracking-wider text-rose-800 mb-1 flex items-center gap-1">
+                  <span>Clear Schedule &amp; Start Fresh</span>
+                  <span>🧁</span>
+                </h4>
+                <p className="text-xs text-rose-700 mb-3 font-medium">
+                  Remove all calendar events so you can plan your own custom schedule from scratch.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onResetData();
+                    cuteSound.playCelebrationFanfare();
+                    onClose();
+                  }}
+                  className="py-2 px-3.5 text-rose-700 hover:text-white hover:bg-rose-500 bg-white text-xs font-bold rounded-xl border border-rose-300 transition-colors flex items-center gap-1.5 shadow-2xs"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Clear Schedule (Start Fresh) 🌸
+                </button>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Footer */}
-        <div className="p-4 bg-pink-100/50 border-t border-pink-200 flex items-center justify-end">
+        <div className="p-3.5 sm:p-4 bg-pink-100/50 border-t border-pink-200 flex items-center justify-end shrink-0">
           <button
+            type="button"
             onClick={onClose}
             className="px-5 py-2 bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white font-extrabold text-xs rounded-xl shadow-xs transition-colors"
           >

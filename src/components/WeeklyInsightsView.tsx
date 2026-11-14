@@ -331,8 +331,8 @@ export const WeeklyInsightsView: React.FC<WeeklyInsightsViewProps> = ({
   }, [selectedDayKey, weeklyData]);
 
   return (
-    <div className="flex-1 overflow-y-auto p-3 sm:p-6 bg-linear-to-b from-pink-50/70 via-white to-pink-50/40">
-      <div className="max-w-6xl mx-auto space-y-6">
+    <div className="flex-1 overflow-y-auto p-3 sm:p-6 pb-24 md:pb-6 bg-linear-to-b from-pink-50/70 via-white to-pink-50/40">
+      <div className="max-w-6xl mx-auto space-y-5 sm:space-y-6">
         
         {/* 1. Header Banner */}
         <div className="bg-linear-to-r from-pink-500 via-rose-500 to-fuchsia-600 rounded-2xl p-4 sm:p-6 text-white shadow-lg shadow-pink-200/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -374,7 +374,7 @@ export const WeeklyInsightsView: React.FC<WeeklyInsightsViewProps> = ({
             </div>
 
             {/* Action buttons */}
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={() => {
                   cuteSound.playSparkle();

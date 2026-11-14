@@ -29,6 +29,11 @@
           "maxLength": 500,
           "description": "Profile avatar URL from Google Auth."
         },
+        "role": {
+          "type": "string",
+          "enum": ["student", "teacher"],
+          "description": "Selected app role preference (student planner vs teacher monitor)."
+        },
         "teacherEmail": {
           "type": "string",
           "maxLength": 200,
