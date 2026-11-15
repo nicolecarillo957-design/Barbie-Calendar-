@@ -74,6 +74,7 @@ export interface CalendarEvent {
   reminders?: ReminderSetting[];
   evidence?: TaskEvidence;
   pointsValue?: number; // 5 or 10 points (defaults to 10 for deep work/planning, 5 for others)
+  order?: number;
 }
 
 export interface UnscheduledTask {
@@ -91,6 +92,7 @@ export interface UnscheduledTask {
   reminderTime?: string; // HH:mm or ISO
   evidence?: TaskEvidence;
   pointsValue?: number;
+  order?: number;
 }
 
 export interface CategoryConfig {

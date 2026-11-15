@@ -29,7 +29,9 @@ import {
   Users,
   Mail,
   Eye,
-  User as UserIcon
+  User as UserIcon,
+  RefreshCw,
+  UserPlus,
 } from 'lucide-react';
 import { WeeklySummaryModal } from './WeeklySummaryModal';
 
@@ -49,6 +51,8 @@ interface TeacherMonitorModalProps {
   teacherEmailLink?: string;
   userRole?: UserRole | null;
   onLinkTeacherEmail?: (email: string) => Promise<void>;
+  onLinkStudentEmail?: (studentEmail: string) => Promise<void>;
+  onRefreshStudents?: () => Promise<void>;
   onSelectStudentToMonitor?: (student: UserProfileDoc | null) => void;
   onUpdateEventEvidence?: (eventId: string, updatedEvidence: TaskEvidence) => void;
   onUpdateTaskEvidence?: (taskId: string, updatedEvidence: TaskEvidence) => void;
@@ -72,6 +76,8 @@ export const TeacherMonitorModal: React.FC<TeacherMonitorModalProps> = ({
   teacherEmailLink = '',
   userRole = 'student',
   onLinkTeacherEmail,
+  onLinkStudentEmail,
+  onRefreshStudents,
   onSelectStudentToMonitor,
   onUpdateEventEvidence,
   onUpdateTaskEvidence,
@@ -87,10 +93,23 @@ export const TeacherMonitorModal: React.FC<TeacherMonitorModalProps> = ({
   const [localTeacherEmail, setLocalTeacherEmail] = useState(teacherEmailLink);
   const [isLinkingTeacher, setIsLinkingTeacher] = useState(false);
   const [linkStatusMsg, setLinkStatusMsg] = useState('');
+  const [linkErrorMsg, setLinkErrorMsg] = useState('');
+
+  const [studentEmailToLink, setStudentEmailToLink] = useState('');
+  const [isAddingStudent, setIsAddingStudent] = useState(false);
+  const [addStudentMsg, setAddStudentMsg] = useState('');
+  const [addStudentErr, setAddStudentErr] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   React.useEffect(() => {
     setLocalTeacherEmail(teacherEmailLink);
   }, [teacherEmailLink]);
+
+  React.useEffect(() => {
+    if (isOpen && onRefreshStudents) {
+      void onRefreshStudents();
+    }
+  }, [isOpen, onRefreshStudents]);
 
   if (!isOpen) return null;
 
@@ -266,26 +285,48 @@ export const TeacherMonitorModal: React.FC<TeacherMonitorModalProps> = ({
           {/* Student Directory Picker for Teachers & Teacher Email Linking */}
           <div className={`grid grid-cols-1 ${!isTeacherAccount && onLinkTeacherEmail ? 'lg:grid-cols-2' : ''} gap-3`}>
             {/* Switch Monitored Student */}
-            <div className="p-3 bg-white/95 rounded-2xl border border-pink-200 shadow-2xs space-y-2">
-              <div className="flex items-center justify-between">
+            <div className="p-3 bg-white/95 rounded-2xl border border-pink-200 shadow-2xs space-y-2.5">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
                 <span className="text-[11px] font-black text-pink-950 uppercase tracking-wider flex items-center gap-1.5">
                   <Users className="w-3.5 h-3.5 text-pink-600" />
                   <span>Students Linked to You ({monitoredStudents.length})</span>
                 </span>
-                {!isTeacherAccount && isViewingAnotherStudent && onSelectStudentToMonitor && (
-                  <button
-                    type="button"
-                    onClick={() => onSelectStudentToMonitor(null)}
-                    className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-pink-100 hover:bg-pink-200 text-pink-800"
-                  >
-                    Return to My Calendar
-                  </button>
-                )}
+                <div className="flex items-center gap-1.5">
+                  {onRefreshStudents && (
+                    <button
+                      type="button"
+                      disabled={isRefreshing}
+                      onClick={async () => {
+                        setIsRefreshing(true);
+                        try {
+                          await onRefreshStudents();
+                          cuteSound.playCutePop();
+                        } finally {
+                          setIsRefreshing(false);
+                        }
+                      }}
+                      className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 flex items-center gap-1"
+                      title="Refresh linked student list"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`} />
+                      <span>Refresh</span>
+                    </button>
+                  )}
+                  {!isTeacherAccount && isViewingAnotherStudent && onSelectStudentToMonitor && (
+                    <button
+                      type="button"
+                      onClick={() => onSelectStudentToMonitor(null)}
+                      className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-pink-100 hover:bg-pink-200 text-pink-800"
+                    >
+                      Return to My Calendar
+                    </button>
+                  )}
+                </div>
               </div>
 
               {monitoredStudents.length === 0 ? (
                 <p className="text-[11px] text-pink-700 leading-snug">
-                  No students have linked your Gmail ({currentUserEmail || 'your email'}) yet. Have a student enter your Gmail in their Settings so their calendar &amp; photo proofs appear here!
+                  No students have linked your Gmail ({currentUserEmail || 'your email'}) yet. Have a student enter your Gmail in <strong>Authorize Teacher Gmail</strong>, or link their student email below!
                 </p>
               ) : (
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
@@ -302,7 +343,7 @@ export const TeacherMonitorModal: React.FC<TeacherMonitorModalProps> = ({
                       <UserIcon className="w-3.5 h-3.5 shrink-0" />
                       <div className="text-[10px] leading-tight">
                         <div className="font-black">My Calendar</div>
-                        <div className="opacity-80 truncate max-w-[110px]">{currentUserEmail}</div>
+                        <div className="opacity-80 truncate max-w-[140px]">{currentUserEmail}</div>
                       </div>
                     </button>
                   )}
@@ -328,8 +369,8 @@ export const TeacherMonitorModal: React.FC<TeacherMonitorModalProps> = ({
                           </span>
                         )}
                         <div className="text-[10px] leading-tight">
-                          <div className="font-black truncate max-w-[120px]">{stu.displayName}</div>
-                          <div className="opacity-80 truncate max-w-[130px] font-mono">{stu.email}</div>
+                          <div className="font-black truncate max-w-[140px]">{stu.displayName}</div>
+                          <div className="opacity-90 truncate max-w-[160px] font-mono">{stu.email}</div>
                         </div>
                         <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-full ${
                           isSelected ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-900'
@@ -341,23 +382,89 @@ export const TeacherMonitorModal: React.FC<TeacherMonitorModalProps> = ({
                   })}
                 </div>
               )}
+
+              {/* Teacher Direct Add Student by Email */}
+              {isTeacherAccount && onLinkStudentEmail && (
+                <div className="pt-2 border-t border-pink-100 space-y-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="email"
+                      value={studentEmailToLink}
+                      onChange={(e) => {
+                        setStudentEmailToLink(e.target.value);
+                        setAddStudentErr('');
+                        setAddStudentMsg('');
+                      }}
+                      placeholder="Add student by email (student@gmail.com)"
+                      className="flex-1 text-xs px-2.5 py-1.5 bg-purple-50/50 border border-purple-200 rounded-xl text-pink-950 focus:outline-none focus:ring-1 focus:ring-purple-400"
+                    />
+                    <button
+                      type="button"
+                      disabled={isAddingStudent}
+                      onClick={async () => {
+                        const clean = studentEmailToLink.trim().toLowerCase();
+                        setAddStudentErr('');
+                        setAddStudentMsg('');
+                        if (!clean || !clean.includes('@')) {
+                          setAddStudentErr('Please enter a valid student email.');
+                          return;
+                        }
+                        setIsAddingStudent(true);
+                        try {
+                          await onLinkStudentEmail(clean);
+                          setStudentEmailToLink('');
+                          setAddStudentMsg(`Linked ${clean} to your Teacher Dashboard!`);
+                          cuteSound.playSparkle();
+                        } catch (err) {
+                          setAddStudentErr(
+                            err instanceof Error ? err.message : 'Could not link student.'
+                          );
+                        } finally {
+                          setIsAddingStudent(false);
+                        }
+                      }}
+                      className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-xs font-extrabold rounded-xl shadow-2xs flex items-center gap-1 shrink-0"
+                    >
+                      <UserPlus className="w-3.5 h-3.5" />
+                      <span>{isAddingStudent ? 'Adding...' : 'Link Student'}</span>
+                    </button>
+                  </div>
+                  {addStudentErr && (
+                    <p className="text-[10px] font-bold text-rose-600">{addStudentErr}</p>
+                  )}
+                  {addStudentMsg && (
+                    <p className="text-[10px] font-bold text-emerald-700">{addStudentMsg}</p>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Link Teacher Email Box (Student Only) */}
             {!isTeacherAccount && onLinkTeacherEmail && (
               <div className="p-3 bg-white/95 rounded-2xl border border-amber-200 shadow-2xs space-y-1.5">
-                <span className="text-[11px] font-black text-amber-950 uppercase tracking-wider flex items-center gap-1.5">
-                  <Mail className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Student Setting: Authorize Teacher Gmail</span>
-                </span>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="text-[11px] font-black text-amber-950 uppercase tracking-wider flex items-center gap-1.5">
+                    <Mail className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Student Setting: Authorize Teacher Gmail</span>
+                  </span>
+                  {teacherEmailLink && (
+                    <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-full font-mono truncate max-w-[200px]">
+                      Authorized: {teacherEmailLink}
+                    </span>
+                  )}
+                </div>
                 <p className="text-[11px] text-amber-800 leading-snug">
-                  Enter your teacher&apos;s Gmail so they can monitor your calendar tasks &amp; picture proofs.
+                  Enter your teacher&apos;s Gmail so your email &amp; calendar automatically pop up on their Teacher Dashboard.
                 </p>
                 <div className="flex items-center gap-1.5">
                   <input
                     type="email"
                     value={localTeacherEmail}
-                    onChange={(e) => setLocalTeacherEmail(e.target.value)}
+                    onChange={(e) => {
+                      setLocalTeacherEmail(e.target.value);
+                      setLinkErrorMsg('');
+                      setLinkStatusMsg('');
+                    }}
                     placeholder="teacher@gmail.com"
                     className="flex-1 text-xs px-2.5 py-1.5 bg-amber-50/40 border border-amber-200 rounded-xl text-pink-950 focus:outline-none focus:ring-1 focus:ring-amber-400"
                   />
@@ -365,12 +472,24 @@ export const TeacherMonitorModal: React.FC<TeacherMonitorModalProps> = ({
                     type="button"
                     disabled={isLinkingTeacher}
                     onClick={async () => {
-                      setIsLinkingTeacher(true);
+                      const cleaned = localTeacherEmail.trim().toLowerCase();
+                      setLinkErrorMsg('');
                       setLinkStatusMsg('');
+                      if (!cleaned || !cleaned.includes('@')) {
+                        setLinkErrorMsg('Please enter a valid teacher Gmail address.');
+                        return;
+                      }
+                      setIsLinkingTeacher(true);
                       try {
-                        await onLinkTeacherEmail(localTeacherEmail.trim().toLowerCase());
-                        setLinkStatusMsg('Linked! Teacher can now monitor your calendar.');
+                        await onLinkTeacherEmail(cleaned);
+                        setLinkStatusMsg(
+                          `Linked! ${cleaned} can now see your email, calendar & proofs.`
+                        );
                         cuteSound.playSparkle();
+                      } catch (err) {
+                        setLinkErrorMsg(
+                          err instanceof Error ? err.message : 'Could not authorize teacher email.'
+                        );
                       } finally {
                         setIsLinkingTeacher(false);
                       }
@@ -380,6 +499,9 @@ export const TeacherMonitorModal: React.FC<TeacherMonitorModalProps> = ({
                     {isLinkingTeacher ? 'Saving...' : 'Save Teacher'}
                   </button>
                 </div>
+                {linkErrorMsg && (
+                  <p className="text-[10px] font-bold text-rose-600">{linkErrorMsg}</p>
+                )}
                 {linkStatusMsg && (
                   <p className="text-[10px] font-bold text-emerald-700">{linkStatusMsg}</p>
                 )}

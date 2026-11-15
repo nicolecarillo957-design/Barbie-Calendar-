@@ -9,6 +9,8 @@ import {
 import { CATEGORY_LIST, getCategoryConfig } from '../utils/categories';
 import { cuteSound } from '../utils/cuteSound';
 import {
+  ArrowDown,
+  ArrowUp,
   BookOpen,
   CalendarPlus,
   Camera,
@@ -16,6 +18,7 @@ import {
   CheckCircle2,
   Clock,
   Edit3,
+  GripVertical,
   Layers,
   Plus,
   Search,
@@ -40,6 +43,7 @@ interface AssignmentsViewProps {
   onSaveEvent: (event: CalendarEvent) => void;
   onDeleteEvent: (eventId: string) => void;
   onToggleEventComplete: (eventId: string) => void;
+  onBatchReorder?: (updates: { tasks: UnscheduledTask[]; events: CalendarEvent[] }) => Promise<void> | void;
   onOpenTeacherMonitor?: () => void;
 }
 
@@ -56,6 +60,7 @@ interface UnifiedAssignment {
   points: number;
   completed: boolean;
   category: EventCategory;
+  order?: number;
   evidence?: TaskEvidence;
   rawTask?: UnscheduledTask;
   rawEvent?: CalendarEvent;
@@ -138,13 +143,28 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
   onSaveEvent,
   onDeleteEvent,
   onToggleEventComplete,
+  onBatchReorder,
   onOpenTeacherMonitor,
 }) => {
+  const hasSavedCustomOrder = useMemo(
+    () =>
+      tasks.some((t) => typeof t.order === 'number') ||
+      events.some((e) => typeof e.order === 'number'),
+    [tasks, events]
+  );
+
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'completed'>('all');
   const [subjectFilter, setSubjectFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<'all' | Priority>('all');
-  const [sortBy, setSortBy] = useState<'due' | 'priority' | 'points'>('due');
+  const [sortBy, setSortBy] = useState<'manual' | 'priority' | 'due' | 'points'>(() =>
+    hasSavedCustomOrder ? 'manual' : 'priority'
+  );
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Drag & Drop State
+  const [draggedKey, setDraggedKey] = useState<string | null>(null);
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null);
+  const [dragOverPriority, setDragOverPriority] = useState<Priority | null>(null);
 
   // Add / Edit Assignment Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -188,6 +208,7 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
           points: t.evidence?.pointsEarned || t.pointsValue || (t.priority === 'high' ? 25 : 10),
           completed: t.completed,
           category: t.category,
+          order: t.order,
           evidence: t.evidence,
           rawTask: t,
         };
@@ -212,6 +233,7 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
         points: ev.evidence?.pointsEarned || ev.pointsValue || fallbackPts,
         completed: ev.isCompleted,
         category: ev.category,
+        order: ev.order,
         evidence: ev.evidence,
         rawEvent: ev,
       };
@@ -249,9 +271,20 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
         if (a.completed !== b.completed) {
           return a.completed ? 1 : -1;
         }
+        if (sortBy === 'manual') {
+          const orderA = typeof a.order === 'number' ? a.order : Number.MAX_SAFE_INTEGER;
+          const orderB = typeof b.order === 'number' ? b.order : Number.MAX_SAFE_INTEGER;
+          if (orderA !== orderB) return orderA - orderB;
+          const pDiff = getPriorityWeight(b.priority) - getPriorityWeight(a.priority);
+          if (pDiff !== 0) return pDiff;
+          return getDueSortTimestamp(a.dueDate, a.dueTime) - getDueSortTimestamp(b.dueDate, b.dueTime);
+        }
         if (sortBy === 'priority') {
           const diff = getPriorityWeight(b.priority) - getPriorityWeight(a.priority);
           if (diff !== 0) return diff;
+          const orderA = typeof a.order === 'number' ? a.order : Number.MAX_SAFE_INTEGER;
+          const orderB = typeof b.order === 'number' ? b.order : Number.MAX_SAFE_INTEGER;
+          if (orderA !== orderB) return orderA - orderB;
           return getDueSortTimestamp(a.dueDate, a.dueTime) - getDueSortTimestamp(b.dueDate, b.dueTime);
         }
         if (sortBy === 'points') {
@@ -259,7 +292,7 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
           if (diff !== 0) return diff;
           return getDueSortTimestamp(a.dueDate, a.dueTime) - getDueSortTimestamp(b.dueDate, b.dueTime);
         }
-        // Default: due date ascending, then priority descending
+        // 'due': earliest due date first, then priority descending
         const timeDiff =
           getDueSortTimestamp(a.dueDate, a.dueTime) - getDueSortTimestamp(b.dueDate, b.dueTime);
         if (timeDiff !== 0) return timeDiff;
@@ -280,6 +313,130 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
   }, [unifiedAssignments]);
 
   const nowMs = Date.now();
+
+  const persistOrderedItems = async (orderedSubset: UnifiedAssignment[]) => {
+    const subsetKeys = new Set(orderedSubset.map((i) => i.key));
+    const remaining = unifiedAssignments
+      .filter((i) => !subsetKeys.has(i.key))
+      .sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER));
+    const fullList = [...orderedSubset, ...remaining];
+
+    const updatedTasks: UnscheduledTask[] = [];
+    const updatedEvents: CalendarEvent[] = [];
+
+    fullList.forEach((item, index) => {
+      if (item.sourceType === 'task' && item.rawTask) {
+        updatedTasks.push({
+          ...item.rawTask,
+          priority: item.priority,
+          order: index,
+        });
+      } else if (item.sourceType === 'event' && item.rawEvent) {
+        updatedEvents.push({
+          ...item.rawEvent,
+          priority: item.priority,
+          order: index,
+        });
+      }
+    });
+
+    if (onBatchReorder) {
+      await onBatchReorder({ tasks: updatedTasks, events: updatedEvents });
+    } else {
+      updatedTasks.forEach((t) => onUpdateTask(t));
+      updatedEvents.forEach((e) => onSaveEvent(e));
+    }
+  };
+
+  const handleReorderDrop = async (sourceKey: string, targetKey: string) => {
+    if (readOnly || !sourceKey || !targetKey || sourceKey === targetKey) return;
+
+    const currentList = [...filteredAssignments];
+    const fromIdx = currentList.findIndex((i) => i.key === sourceKey);
+    const toIdx = currentList.findIndex((i) => i.key === targetKey);
+    if (fromIdx === -1 || toIdx === -1) return;
+
+    const draggedItem = currentList[fromIdx];
+    const targetItem = currentList[toIdx];
+
+    // Update priority to match the dropped tier when in priority sort or moving across priorities
+    const nextPriority =
+      sortBy === 'priority' ? targetItem.priority : draggedItem.priority;
+
+    const nextList = [...currentList];
+    const [removed] = nextList.splice(fromIdx, 1);
+    nextList.splice(toIdx, 0, { ...removed, priority: nextPriority });
+
+    if (sortBy !== 'manual' && sortBy !== 'priority') {
+      setSortBy('manual');
+    }
+
+    cuteSound.playCutePop();
+    await persistOrderedItems(nextList);
+  };
+
+  const handleDropOnPriorityZone = async (sourceKey: string, targetPriority: Priority) => {
+    if (readOnly || !sourceKey) return;
+    const currentList = [...filteredAssignments];
+    const fromIdx = currentList.findIndex((i) => i.key === sourceKey);
+    if (fromIdx === -1) return;
+
+    const [removed] = currentList.splice(fromIdx, 1);
+    const updatedItem: UnifiedAssignment = { ...removed, priority: targetPriority };
+
+    // Insert at the top of the matching priority tier (or top of pending list if high)
+    let insertIdx = currentList.findIndex(
+      (i) => !i.completed && getPriorityWeight(i.priority) <= getPriorityWeight(targetPriority)
+    );
+    if (insertIdx === -1) {
+      const firstCompleted = currentList.findIndex((i) => i.completed);
+      insertIdx = firstCompleted === -1 ? currentList.length : firstCompleted;
+    }
+
+    currentList.splice(insertIdx, 0, updatedItem);
+    cuteSound.playSparkle();
+    await persistOrderedItems(currentList);
+  };
+
+  const handleMoveStep = async (itemKey: string, direction: 'up' | 'down') => {
+    if (readOnly) return;
+    const currentList = [...filteredAssignments];
+    const idx = currentList.findIndex((i) => i.key === itemKey);
+    if (idx === -1) return;
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= currentList.length) return;
+
+    await handleReorderDrop(itemKey, currentList[swapIdx].key);
+  };
+
+  const handleTouchMoveGrip = (e: React.TouchEvent) => {
+    if (readOnly || !draggedKey || e.touches.length === 0) return;
+    const touch = e.touches[0];
+    const el = document.elementFromPoint(touch.clientX, touch.clientY) as HTMLElement | null;
+    const cardEl = el?.closest('[data-assignment-key]') as HTMLElement | null;
+    const prioEl = el?.closest('[data-priority-drop]') as HTMLElement | null;
+
+    if (prioEl) {
+      const prio = prioEl.getAttribute('data-priority-drop') as Priority | null;
+      setDragOverPriority(prio);
+      setDragOverKey(null);
+    } else if (cardEl) {
+      const key = cardEl.getAttribute('data-assignment-key');
+      setDragOverKey(key);
+      setDragOverPriority(null);
+    }
+  };
+
+  const handleTouchEndGrip = async () => {
+    if (draggedKey && dragOverPriority) {
+      await handleDropOnPriorityZone(draggedKey, dragOverPriority);
+    } else if (draggedKey && dragOverKey && draggedKey !== dragOverKey) {
+      await handleReorderDrop(draggedKey, dragOverKey);
+    }
+    setDraggedKey(null);
+    setDragOverKey(null);
+    setDragOverPriority(null);
+  };
 
   const openCreateModal = () => {
     if (readOnly) return;
@@ -544,16 +701,108 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
             {/* Sort Selector */}
             <select
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as 'due' | 'priority' | 'points')}
+              onChange={(e) =>
+                setSortBy(e.target.value as 'manual' | 'priority' | 'due' | 'points')
+              }
               aria-label="Sort assignments"
               className="text-xs font-semibold bg-pink-50/60 border border-pink-200 rounded-xl px-3 py-2 text-pink-950 focus:outline-none focus:ring-2 focus:ring-pink-400"
             >
+              <option value="priority">Sort: Priority Tier (Drag &amp; Drop)</option>
+              <option value="manual">Sort: Custom Priority Order (Drag &amp; Drop)</option>
               <option value="due">Sort: Earliest Due Date</option>
-              <option value="priority">Sort: Highest Priority</option>
               <option value="points">Sort: Most Points</option>
             </select>
           </div>
         </div>
+
+        {/* Drag-and-Drop Priority Drop Zones Bar */}
+        {!readOnly && filteredAssignments.length > 0 && (
+          <div className="bg-white/95 rounded-2xl border border-pink-200/90 p-2.5 sm:p-3 shadow-2xs space-y-2">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="text-[11px] font-bold text-pink-800 flex items-center gap-1.5">
+                <GripVertical className="w-3.5 h-3.5 text-pink-500 shrink-0" />
+                <span>
+                  {draggedKey
+                    ? 'Drop onto another card to reorder, or drop onto a Priority tier below!'
+                    : 'Drag cards by the grip handle (or use arrows) to reorder by priority'}
+                </span>
+              </span>
+              {sortBy !== 'manual' && sortBy !== 'priority' && (
+                <button
+                  type="button"
+                  onClick={() => setSortBy('manual')}
+                  className="text-[10px] font-extrabold text-pink-700 bg-pink-100 hover:bg-pink-200 px-2.5 py-1 rounded-lg transition-colors"
+                >
+                  Use Custom Order
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
+              {(
+                [
+                  {
+                    id: 'high' as const,
+                    label: 'High Priority',
+                    dot: 'bg-rose-500',
+                    idle: 'bg-rose-50/70 border-rose-200 text-rose-800',
+                    active: 'bg-rose-500 border-rose-600 text-white scale-[1.02] shadow-md',
+                  },
+                  {
+                    id: 'medium' as const,
+                    label: 'Medium Priority',
+                    dot: 'bg-amber-500',
+                    idle: 'bg-amber-50/70 border-amber-200 text-amber-800',
+                    active: 'bg-amber-500 border-amber-600 text-white scale-[1.02] shadow-md',
+                  },
+                  {
+                    id: 'low' as const,
+                    label: 'Low Priority',
+                    dot: 'bg-emerald-500',
+                    idle: 'bg-emerald-50/70 border-emerald-200 text-emerald-800',
+                    active: 'bg-emerald-500 border-emerald-600 text-white scale-[1.02] shadow-md',
+                  },
+                ]
+              ).map((zone) => {
+                const isOver = dragOverPriority === zone.id;
+                return (
+                  <div
+                    key={zone.id}
+                    data-priority-drop={zone.id}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setDragOverPriority(zone.id);
+                      setDragOverKey(null);
+                    }}
+                    onDragLeave={() => {
+                      if (dragOverPriority === zone.id) setDragOverPriority(null);
+                    }}
+                    onDrop={async (e) => {
+                      e.preventDefault();
+                      const key = draggedKey || e.dataTransfer.getData('text/plain');
+                      setDragOverPriority(null);
+                      setDraggedKey(null);
+                      setDragOverKey(null);
+                      if (key) await handleDropOnPriorityZone(key, zone.id);
+                    }}
+                    className={`px-2 py-1.5 rounded-xl border-2 border-dashed text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all ${
+                      isOver ? zone.active : zone.idle
+                    }`}
+                  >
+                    <span
+                      className={`w-2 h-2 rounded-full shrink-0 ${
+                        isOver ? 'bg-white' : zone.dot
+                      }`}
+                    />
+                    <span className="truncate">
+                      {draggedKey ? `Drop → ${zone.label}` : zone.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Assignment Cards List (Clean white cards inspired by the screenshot) */}
         {filteredAssignments.length === 0 ? (
@@ -623,30 +872,121 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
                       dot: 'bg-emerald-500',
                     };
 
+              const isDraggingThis = draggedKey === item.key;
+              const isDropTarget = dragOverKey === item.key && draggedKey !== item.key;
+
               return (
                 <article
                   key={item.key}
+                  data-assignment-key={item.key}
+                  draggable={!readOnly}
+                  onDragStart={(e) => {
+                    if (readOnly) return;
+                    setDraggedKey(item.key);
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', item.key);
+                  }}
+                  onDragOver={(e) => {
+                    if (readOnly || !draggedKey || draggedKey === item.key) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    setDragOverKey(item.key);
+                    setDragOverPriority(null);
+                  }}
+                  onDragLeave={() => {
+                    if (dragOverKey === item.key) setDragOverKey(null);
+                  }}
+                  onDrop={async (e) => {
+                    if (readOnly) return;
+                    e.preventDefault();
+                    const sourceKey = draggedKey || e.dataTransfer.getData('text/plain');
+                    setDraggedKey(null);
+                    setDragOverKey(null);
+                    setDragOverPriority(null);
+                    if (sourceKey && sourceKey !== item.key) {
+                      await handleReorderDrop(sourceKey, item.key);
+                    }
+                  }}
+                  onDragEnd={() => {
+                    setDraggedKey(null);
+                    setDragOverKey(null);
+                    setDragOverPriority(null);
+                  }}
                   className={`bg-white rounded-2xl border transition-all p-4 sm:p-5 shadow-2xs hover:shadow-md ${
-                    item.completed
+                    isDraggingThis
+                      ? 'opacity-50 scale-[0.98] border-pink-400 ring-2 ring-pink-300 cursor-grabbing'
+                      : isDropTarget
+                      ? 'border-pink-500 ring-2 ring-pink-400 bg-pink-50/40 -translate-y-0.5 shadow-md'
+                      : item.completed
                       ? 'border-pink-200/70 bg-white/85'
                       : isOverdue
                       ? 'border-rose-300'
                       : 'border-pink-200/90 hover:border-pink-300'
                   }`}
                 >
-                  {/* Row 1: Subject Tag (left) + Priority Tag (right) */}
+                  {/* Row 1: Drag Handle + Subject Tag (left) + Priority Tag (right) */}
                   <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-100 text-xs font-bold">
-                      <BookOpen className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                      <span>{item.subject}</span>
-                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {!readOnly && (
+                        <div className="flex items-center gap-0.5 mr-0.5">
+                          <span
+                            onTouchStart={() => setDraggedKey(item.key)}
+                            onTouchMove={handleTouchMoveGrip}
+                            onTouchEnd={handleTouchEndGrip}
+                            title="Drag to reorder by priority"
+                            aria-label={`Drag ${item.title} to reorder`}
+                            className="p-1 text-pink-400 hover:text-pink-700 hover:bg-pink-100 rounded-lg cursor-grab active:cursor-grabbing touch-none"
+                          >
+                            <GripVertical className="w-4 h-4" />
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleMoveStep(item.key, 'up')}
+                            title="Move up in priority order"
+                            aria-label={`Move ${item.title} up`}
+                            className="p-0.5 text-pink-400 hover:text-pink-700 hover:bg-pink-100 rounded"
+                          >
+                            <ArrowUp className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleMoveStep(item.key, 'down')}
+                            title="Move down in priority order"
+                            aria-label={`Move ${item.title} down`}
+                            className="p-0.5 text-pink-400 hover:text-pink-700 hover:bg-pink-100 rounded"
+                          >
+                            <ArrowDown className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )}
 
-                    <span
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold ${priorityConfig.bg}`}
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-100 text-xs font-bold">
+                        <BookOpen className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                        <span>{item.subject}</span>
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={readOnly}
+                      onClick={() => {
+                        if (readOnly) return;
+                        const nextPrio: Priority =
+                          item.priority === 'high'
+                            ? 'medium'
+                            : item.priority === 'medium'
+                            ? 'low'
+                            : 'high';
+                        void handleDropOnPriorityZone(item.key, nextPrio);
+                      }}
+                      title={readOnly ? priorityConfig.label : 'Click or drop into zone to change priority'}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition-transform ${
+                        !readOnly ? 'hover:scale-105 cursor-pointer' : ''
+                      } ${priorityConfig.bg}`}
                     >
                       <span className={`w-2 h-2 rounded-full ${priorityConfig.dot}`} aria-hidden="true" />
                       <span>{priorityConfig.label}</span>
-                    </span>
+                    </button>
                   </div>
 
                   {/* Row 2: Completion Checkbox + Task Title + Description */}

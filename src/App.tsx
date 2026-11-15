@@ -34,9 +34,11 @@ import {
 import {
   CREATOR_ADMIN_EMAIL,
   PortalUser,
+  batchReorderAssignments,
   deleteEvent,
   deleteTask,
   ensureUserProfile,
+  linkStudentEmailByTeacher,
   saveEvent,
   saveTask,
   signOutUser,
@@ -45,6 +47,7 @@ import {
   subscribeMonitoredStudents,
   subscribeTasks,
   subscribeUserProfile,
+  syncPortalNow,
   syncUserProfile,
   updateAssignedTeacherEmail,
   updateUserRole,
@@ -76,7 +79,7 @@ import { GmailLoginGate } from './components/GmailLoginGate';
 import { RoleSelectionGate } from './components/RoleSelectionGate';
 import { FeedbackChatBox } from './components/FeedbackChatBox';
 import { CalendarThemeId, THEME_CONFIGS } from './types/theme';
-import { Eye, GraduationCap, ArrowLeft, Copy, Check, FileText, Users, SlidersHorizontal } from 'lucide-react';
+import { Eye, GraduationCap, ArrowLeft, Copy, Check, FileText, Users, SlidersHorizontal, RefreshCw, UserPlus } from 'lucide-react';
 
 const NOTIFS_STORAGE_KEY = 'edutrack_notifs_v1';
 const THEME_STORAGE_KEY = 'calendar_color_theme_v1';
@@ -298,6 +301,10 @@ export default function App() {
   const [isTeacherMonitorOpen, setIsTeacherMonitorOpen] = useState(false);
   const [isTeacherSummaryOpen, setIsTeacherSummaryOpen] = useState(false);
   const [copiedTeacherGmailBanner, setCopiedTeacherGmailBanner] = useState(false);
+  const [teacherBannerStudentEmail, setTeacherBannerStudentEmail] = useState('');
+  const [teacherBannerLinkMsg, setTeacherBannerLinkMsg] = useState('');
+  const [teacherBannerLinkErr, setTeacherBannerLinkErr] = useState('');
+  const [teacherRefreshing, setTeacherRefreshing] = useState(false);
   const [isEvidenceModalOpen, setIsEvidenceModalOpen] = useState(false);
   const [evidenceTarget, setEvidenceTarget] = useState<{
     type: 'event' | 'task';
@@ -900,6 +907,14 @@ export default function App() {
     [isTeacherAccount]
   );
 
+  const handleBatchReorderAssignments = useCallback(
+    async (updates: { tasks: UnscheduledTask[]; events: CalendarEvent[] }) => {
+      if (!currentUser || isCalendarReadOnly) return;
+      await batchReorderAssignments(currentUser.uid, updates);
+    },
+    [currentUser, isCalendarReadOnly]
+  );
+
   // Student/Teacher Profile, Role & Teacher Link Updates
   const handleSelectUserRole = useCallback(
     async (role: UserRole) => {
@@ -1233,7 +1248,14 @@ export default function App() {
                         className="w-4 h-4 rounded-full border border-white/60 shrink-0"
                       />
                     )}
-                    <span className="truncate max-w-[110px]">{stu.displayName}</span>
+                    <span className="truncate max-w-[100px]">{stu.displayName}</span>
+                    <span
+                      className={`text-[10px] font-mono truncate max-w-[130px] hidden sm:inline ${
+                        isSelected ? 'text-purple-700' : 'text-pink-100'
+                      }`}
+                    >
+                      ({stu.email})
+                    </span>
                     <span
                       className={`text-[10px] font-mono ${
                         isSelected ? 'text-amber-700' : 'text-amber-200'
@@ -1402,6 +1424,23 @@ export default function App() {
                 <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
                   <button
                     type="button"
+                    disabled={teacherRefreshing}
+                    onClick={async () => {
+                      setTeacherRefreshing(true);
+                      try {
+                        await syncPortalNow();
+                        cuteSound.playCutePop();
+                      } finally {
+                        setTeacherRefreshing(false);
+                      }
+                    }}
+                    className="px-4 py-2 bg-purple-100 hover:bg-purple-200 text-purple-900 border border-purple-300 rounded-xl text-xs font-extrabold flex items-center gap-1.5"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${teacherRefreshing ? 'animate-spin' : ''}`} />
+                    <span>{teacherRefreshing ? 'Refreshing...' : 'Refresh Students'}</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setIsTeacherMonitorOpen(true)}
                     className="px-4 py-2 bg-gradient-to-r from-purple-600 to-fuchsia-600 hover:from-purple-700 hover:to-fuchsia-700 text-white rounded-xl text-xs font-extrabold flex items-center gap-1.5 shadow-sm"
                   >
@@ -1417,6 +1456,58 @@ export default function App() {
                     <span>Settings / Switch Role</span>
                   </button>
                 </div>
+
+                {/* Quick Link Student by Email on Teacher Waiting Card */}
+                {currentUser.email && (
+                  <div className="pt-3 border-t border-purple-100 text-left space-y-1.5">
+                    <label className="text-[11px] font-black text-purple-950 block">
+                      Or add a student directly by their email:
+                    </label>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="email"
+                        value={teacherBannerStudentEmail}
+                        onChange={(e) => {
+                          setTeacherBannerStudentEmail(e.target.value);
+                          setTeacherBannerLinkErr('');
+                          setTeacherBannerLinkMsg('');
+                        }}
+                        placeholder="student@gmail.com"
+                        className="flex-1 text-xs px-3 py-2 bg-purple-50/50 border border-purple-200 rounded-xl text-pink-950 focus:outline-none focus:ring-1 focus:ring-purple-400"
+                      />
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setTeacherBannerLinkErr('');
+                          setTeacherBannerLinkMsg('');
+                          try {
+                            await linkStudentEmailByTeacher(
+                              currentUser.email!,
+                              teacherBannerStudentEmail
+                            );
+                            setTeacherBannerStudentEmail('');
+                            setTeacherBannerLinkMsg('Student linked!');
+                            cuteSound.playSparkle();
+                          } catch (err) {
+                            setTeacherBannerLinkErr(
+                              err instanceof Error ? err.message : 'Could not link student.'
+                            );
+                          }
+                        }}
+                        className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-extrabold flex items-center gap-1 shrink-0"
+                      >
+                        <UserPlus className="w-3.5 h-3.5" />
+                        <span>Add Student</span>
+                      </button>
+                    </div>
+                    {teacherBannerLinkErr && (
+                      <p className="text-[11px] font-bold text-rose-600">{teacherBannerLinkErr}</p>
+                    )}
+                    {teacherBannerLinkMsg && (
+                      <p className="text-[11px] font-bold text-emerald-700">{teacherBannerLinkMsg}</p>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           ) : (
@@ -1482,6 +1573,7 @@ export default function App() {
               onSaveEvent={handleSaveEvent}
               onDeleteEvent={handleDeleteEvent}
               onToggleEventComplete={handleToggleComplete}
+              onBatchReorder={handleBatchReorderAssignments}
               onOpenTeacherMonitor={() => setIsTeacherMonitorOpen(true)}
             />
           )}
@@ -1681,6 +1773,12 @@ export default function App() {
         teacherEmailLink={teacherEmail}
         userRole={userRole}
         onLinkTeacherEmail={handleUpdateTeacherEmail}
+        onLinkStudentEmail={
+          currentUser.email
+            ? (stuEmail) => linkStudentEmailByTeacher(currentUser.email, stuEmail)
+            : undefined
+        }
+        onRefreshStudents={syncPortalNow}
         onSelectStudentToMonitor={(stu) => setMonitoredStudent(stu)}
         onUpdateEventEvidence={handleUpdateEventEvidence}
         onUpdateTaskEvidence={handleUpdateTaskEvidence}

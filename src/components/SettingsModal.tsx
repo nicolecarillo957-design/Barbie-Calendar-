@@ -74,6 +74,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [localTeacherEmail, setLocalTeacherEmail] = useState(teacherEmail);
   const [savingTeacher, setSavingTeacher] = useState(false);
   const [teacherSavedMsg, setTeacherSavedMsg] = useState(false);
+  const [teacherErrorMsg, setTeacherErrorMsg] = useState('');
   const [nameSavedMsg, setNameSavedMsg] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [switchingRole, setSwitchingRole] = useState(false);
@@ -523,7 +524,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <input
                       type="email"
                       value={localTeacherEmail}
-                      onChange={(e) => setLocalTeacherEmail(e.target.value)}
+                      onChange={(e) => {
+                        setLocalTeacherEmail(e.target.value);
+                        setTeacherErrorMsg('');
+                        setTeacherSavedMsg(false);
+                      }}
                       placeholder="teacher@gmail.com"
                       className="flex-1 text-xs px-3 py-2 bg-white border border-amber-200 rounded-xl text-pink-950 focus:outline-none focus:ring-1 focus:ring-amber-400 font-medium"
                     />
@@ -532,11 +537,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       disabled={savingTeacher}
                       onClick={async () => {
                         setSavingTeacher(true);
+                        setTeacherErrorMsg('');
                         try {
                           await onUpdateTeacherEmail(localTeacherEmail.trim().toLowerCase());
                           cuteSound.playSparkle();
                           setTeacherSavedMsg(true);
                           setTimeout(() => setTeacherSavedMsg(false), 3000);
+                        } catch (err) {
+                          setTeacherErrorMsg(
+                            err instanceof Error ? err.message : 'Could not link teacher Gmail.'
+                          );
                         } finally {
                           setSavingTeacher(false);
                         }
@@ -546,6 +556,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       {savingTeacher ? 'Linking...' : 'Link Teacher 👩‍🏫'}
                     </button>
                   </div>
+                  {teacherErrorMsg && (
+                    <p className="text-[11px] text-rose-600 font-bold">{teacherErrorMsg}</p>
+                  )}
                   {teacherSavedMsg && (
                     <p className="text-[11px] text-emerald-700 font-bold">
                       Teacher Gmail linked! They can now monitor your calendar and photo proofs.
