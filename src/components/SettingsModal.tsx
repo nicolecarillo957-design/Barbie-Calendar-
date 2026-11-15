@@ -1,8 +1,11 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { CalendarEvent, UnscheduledTask, UserRole } from '../types/calendar';
 import { downloadFile, exportToIcs } from '../utils/dateUtils';
-import { auth, hasPasswordProvider, setOrUpdateAccountPassword } from '../firebase';
-import { evaluatePasswordStrength, mapFirebaseAuthError } from '../utils/passwordUtils';
+import {
+  getCurrentPortalUser,
+  hasAccountPassword,
+  setOrUpdateAccountPassword,
+} from '../localPortal';
 import {
   Download,
   Upload,
@@ -86,11 +89,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [passwordStatusMsg, setPasswordStatusMsg] = useState<string | null>(null);
   const [passwordErrorMsg, setPasswordErrorMsg] = useState<string | null>(null);
 
-  const userHasPassword = hasPasswordProvider(auth.currentUser);
-  const newPasswordStrength = useMemo(
-    () => evaluatePasswordStrength(newPassword),
-    [newPassword]
-  );
+  const userHasPassword = hasAccountPassword(getCurrentPortalUser());
 
   React.useEffect(() => {
     setLocalStudentName(studentName);
@@ -149,10 +148,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setPasswordErrorMsg('Please enter your current password first.');
       return;
     }
-    if (!newPasswordStrength.isValid) {
-      setPasswordErrorMsg(
-        'Password must be at least 8 characters and include uppercase, lowercase, and a number.'
-      );
+    if (newPassword.length < 4) {
+      setPasswordErrorMsg('Password must be at least 4 characters.');
       return;
     }
     if (newPassword !== confirmNewPassword) {
@@ -173,7 +170,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           : 'Safety password added! You can now sign in using your email + password anytime.'
       );
     } catch (err) {
-      setPasswordErrorMsg(mapFirebaseAuthError(err));
+      setPasswordErrorMsg(err instanceof Error ? err.message : 'Could not update password.');
     } finally {
       setSavingPassword(false);
     }
@@ -332,7 +329,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   type={showNewPassword ? 'text' : 'password'}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="New password (8+ chars, A-Z, a-z, 0-9)"
+                  placeholder="New password (4+ characters)"
                   autoComplete="new-password"
                   className="w-full text-xs pl-3 pr-9 py-2 bg-white border border-pink-200 rounded-xl text-pink-950 focus:outline-none focus:ring-1 focus:ring-pink-400"
                 />

@@ -52,12 +52,14 @@ export const EventModal: React.FC<EventModalProps> = ({
   onDuplicate,
 }) => {
   const [title, setTitle] = useState('');
+  const [subject, setSubject] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<EventCategory>('deep_work');
   const [date, setDate] = useState('');
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('10:00');
   const [priority, setPriority] = useState<Priority>('medium');
+  const [pointsValue, setPointsValue] = useState<number>(10);
   const [location, setLocation] = useState('');
   const [meetingUrl, setMeetingUrl] = useState('');
   const [subtasks, setSubtasks] = useState<Subtask[]>([]);
@@ -71,12 +73,17 @@ export const EventModal: React.FC<EventModalProps> = ({
   useEffect(() => {
     if (eventToEdit) {
       setTitle(eventToEdit.title);
+      setSubject(eventToEdit.subject || '');
       setDescription(eventToEdit.description || '');
       setCategory(eventToEdit.category);
       setDate(eventToEdit.date);
       setStartTime(eventToEdit.startTime);
       setEndTime(eventToEdit.endTime);
       setPriority(eventToEdit.priority);
+      setPointsValue(
+        eventToEdit.pointsValue ??
+          (eventToEdit.category === 'deep_work' || eventToEdit.category === 'planning' ? 10 : 5)
+      );
       setLocation(eventToEdit.location || '');
       setMeetingUrl(eventToEdit.meetingUrl || '');
       setSubtasks(eventToEdit.subtasks || []);
@@ -93,12 +100,14 @@ export const EventModal: React.FC<EventModalProps> = ({
       const endStr = minutesToTime(startMin + 60);
 
       setTitle('');
+      setSubject('');
       setDescription('');
       setCategory('deep_work');
       setDate(defaultDateStr);
       setStartTime(defaultStart);
       setEndTime(endStr);
       setPriority('medium');
+      setPointsValue(10);
       setLocation('');
       setMeetingUrl('');
       setSubtasks([]);
@@ -179,6 +188,7 @@ export const EventModal: React.FC<EventModalProps> = ({
     const eventData: CalendarEvent = {
       id: eventToEdit ? eventToEdit.id : `evt-${Date.now()}`,
       title: title.trim(),
+      subject: subject.trim() || undefined,
       description: description.trim() || undefined,
       category,
       date,
@@ -186,10 +196,12 @@ export const EventModal: React.FC<EventModalProps> = ({
       endTime,
       isCompleted: eventToEdit ? eventToEdit.isCompleted : false,
       priority,
+      pointsValue: Math.max(1, Math.min(100, Math.round(pointsValue || 10))),
       location: location.trim() || undefined,
       meetingUrl: meetingUrl.trim() || undefined,
       subtasks: subtasks.length > 0 ? subtasks : undefined,
       reminders: reminders.length > 0 ? reminders : undefined,
+      evidence: eventToEdit?.evidence,
     };
 
     cuteSound.playSparkle();
@@ -283,6 +295,37 @@ export const EventModal: React.FC<EventModalProps> = ({
               onChange={(e) => setTitle(e.target.value)}
               className="w-full text-sm px-3.5 py-2.5 bg-pink-50/50 border border-pink-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-400 focus:bg-white text-pink-950 font-medium placeholder:text-pink-300"
             />
+          </div>
+
+          {/* Subject & Points Row */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-bold text-pink-900 mb-1">
+                Subject / Course (Optional)
+              </label>
+              <input
+                type="text"
+                maxLength={80}
+                placeholder="e.g. General Physics, Gen Math, Oral Comm"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                className="w-full text-xs px-3 py-2 bg-pink-50/50 border border-pink-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-400 focus:bg-white text-pink-950 font-semibold placeholder:text-pink-300"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-pink-900 mb-1">
+                Points Value
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={pointsValue}
+                onChange={(e) => setPointsValue(Math.max(1, Math.min(100, Number(e.target.value) || 5)))}
+                className="w-full text-xs px-3 py-2 bg-pink-50/50 border border-pink-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-400 focus:bg-white text-emerald-700 font-mono font-extrabold"
+              />
+            </div>
           </div>
 
           {/* Category & Priority Grid */}

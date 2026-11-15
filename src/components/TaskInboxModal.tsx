@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { UnscheduledTask, EventCategory } from '../types/calendar';
+import { UnscheduledTask, EventCategory, Priority } from '../types/calendar';
 import { CATEGORY_LIST, getCategoryConfig } from '../utils/categories';
 import { cuteSound } from '../utils/cuteSound';
 import { 
@@ -37,6 +37,10 @@ export const TaskInboxModal: React.FC<TaskInboxModalProps> = ({
 }) => {
   const [isAddingTask, setIsAddingTask] = useState(false);
   const [taskTitle, setTaskTitle] = useState('');
+  const [taskSubject, setTaskSubject] = useState('');
+  const [taskPriority, setTaskPriority] = useState<Priority>('medium');
+  const [taskDueDate, setTaskDueDate] = useState('');
+  const [taskPoints, setTaskPoints] = useState<number>(10);
   const [taskCategory, setTaskCategory] = useState<EventCategory>('deep_work');
   const [taskMinutes, setTaskMinutes] = useState(45);
   const [filter, setFilter] = useState<'all' | 'pending' | 'completed'>('pending');
@@ -49,12 +53,17 @@ export const TaskInboxModal: React.FC<TaskInboxModalProps> = ({
 
     onAddTask({
       title: taskTitle.trim(),
+      subject: taskSubject.trim() || undefined,
       category: taskCategory,
       estimatedMinutes: taskMinutes,
-      priority: 'medium',
+      priority: taskPriority,
+      dueDate: taskDueDate || undefined,
+      pointsValue: Math.max(1, Math.min(100, Math.round(taskPoints || 10))),
     });
 
     setTaskTitle('');
+    setTaskSubject('');
+    setTaskDueDate('');
     setIsAddingTask(false);
     cuteSound.playSparkle();
   };
@@ -149,20 +158,56 @@ export const TaskInboxModal: React.FC<TaskInboxModalProps> = ({
 
         {/* Task Quick Creator Form */}
         {isAddingTask && (
-          <form onSubmit={handleCreateTask} className="p-3.5 bg-pink-100/80 border-b border-pink-200 shrink-0">
+          <form onSubmit={handleCreateTask} className="p-3.5 bg-pink-100/80 border-b border-pink-200 shrink-0 space-y-2">
             <input
               type="text"
-              placeholder="What needs to be scheduled? ✨"
+              placeholder="Assignment / task name ✨"
               value={taskTitle}
               onChange={(e) => setTaskTitle(e.target.value)}
               autoFocus
-              className="w-full text-xs px-3 py-2 bg-white border border-pink-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-400 mb-2.5 text-pink-950 placeholder:text-pink-400"
+              className="w-full text-xs px-3 py-2 bg-white border border-pink-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-400 text-pink-950 placeholder:text-pink-400"
             />
-            <div className="flex items-center gap-2 mb-2.5">
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="text"
+                maxLength={80}
+                placeholder="Subject (e.g. Gen Math)"
+                value={taskSubject}
+                onChange={(e) => setTaskSubject(e.target.value)}
+                className="text-xs px-2.5 py-1.5 bg-white border border-pink-200 rounded-xl focus:outline-none text-pink-950 placeholder:text-pink-300"
+              />
+              <select
+                value={taskPriority}
+                onChange={(e) => setTaskPriority(e.target.value as Priority)}
+                className="text-xs bg-white border border-pink-200 rounded-xl px-2.5 py-1.5 text-pink-900 focus:outline-none font-semibold"
+              >
+                <option value="high">High Priority</option>
+                <option value="medium">Medium Priority</option>
+                <option value="low">Low Priority</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <input
+                type="date"
+                value={taskDueDate}
+                onChange={(e) => setTaskDueDate(e.target.value)}
+                className="text-xs bg-white border border-pink-200 rounded-xl px-2 py-1.5 text-pink-900 font-mono focus:outline-none"
+                title="Due date"
+              />
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={taskPoints}
+                onChange={(e) => setTaskPoints(Math.max(1, Math.min(100, Number(e.target.value) || 5)))}
+                className="text-xs bg-white border border-pink-200 rounded-xl px-2.5 py-1.5 text-emerald-700 font-mono font-bold focus:outline-none"
+                title="Points value"
+                placeholder="Pts"
+              />
               <select
                 value={taskCategory}
                 onChange={(e) => setTaskCategory(e.target.value as EventCategory)}
-                className="text-xs bg-white border border-pink-200 rounded-xl px-2.5 py-1.5 text-pink-900 flex-1 focus:outline-none"
+                className="text-xs bg-white border border-pink-200 rounded-xl px-2 py-1.5 text-pink-900 focus:outline-none"
               >
                 {CATEGORY_LIST.map((c) => (
                   <option key={c.id} value={c.id}>
@@ -173,7 +218,7 @@ export const TaskInboxModal: React.FC<TaskInboxModalProps> = ({
               <select
                 value={taskMinutes}
                 onChange={(e) => setTaskMinutes(Number(e.target.value))}
-                className="text-xs bg-white border border-pink-200 rounded-xl px-2.5 py-1.5 text-pink-900 w-24 focus:outline-none font-mono"
+                className="text-xs bg-white border border-pink-200 rounded-xl px-2 py-1.5 text-pink-900 focus:outline-none font-mono"
               >
                 <option value={15}>15 mins</option>
                 <option value={30}>30 mins</option>

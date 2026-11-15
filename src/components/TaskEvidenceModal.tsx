@@ -276,7 +276,7 @@ export const TaskEvidenceModal: React.FC<TaskEvidenceModalProps> = ({
             </div>
           </div>
 
-          {/* Points Selection (5 pts or 10 pts) */}
+          {/* Points Selection */}
           <div>
             <label className="block text-xs font-bold text-pink-900 mb-1.5 flex items-center justify-between">
               <span className="flex items-center gap-1">
@@ -285,21 +285,47 @@ export const TaskEvidenceModal: React.FC<TaskEvidenceModalProps> = ({
               </span>
               <span className="text-[11px] text-pink-600 font-normal">Based on effort</span>
             </label>
-            <div className="grid grid-cols-2 gap-2.5">
+            <div
+              className={`grid gap-2.5 ${
+                targetItem.pointsValue && targetItem.pointsValue !== 5 && targetItem.pointsValue !== 10
+                  ? 'grid-cols-3'
+                  : 'grid-cols-2'
+              }`}
+            >
+              {targetItem.pointsValue &&
+                targetItem.pointsValue !== 5 &&
+                targetItem.pointsValue !== 10 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedPoints(targetItem.pointsValue!);
+                      cuteSound.playSparkle();
+                    }}
+                    className={`p-2.5 rounded-2xl border text-center transition-all flex flex-col items-center justify-center ${
+                      selectedPoints === targetItem.pointsValue
+                        ? 'bg-emerald-600 text-white border-emerald-700 shadow-md scale-[1.02]'
+                        : 'bg-emerald-50 text-emerald-900 border-emerald-200 hover:bg-emerald-100'
+                    }`}
+                  >
+                    <span className="text-base font-black tabular-nums">+{targetItem.pointsValue} pts</span>
+                    <span className="text-[10px] opacity-85 font-bold">(Assigned)</span>
+                  </button>
+                )}
+
               <button
                 type="button"
                 onClick={() => {
                   setSelectedPoints(5);
                   cuteSound.playSparkle();
                 }}
-                className={`p-2.5 rounded-2xl border text-center transition-all flex items-center justify-center gap-2 ${
+                className={`p-2.5 rounded-2xl border text-center transition-all flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 ${
                   selectedPoints === 5
                     ? 'bg-pink-500 text-white border-pink-600 shadow-md scale-[1.02]'
                     : 'bg-white text-pink-900 border-pink-200 hover:bg-pink-50'
                 }`}
               >
-                <span className="text-base font-black">5 Points</span>
-                <span className="text-[10px] opacity-80">(Standard Task)</span>
+                <span className="text-sm sm:text-base font-black">5 Points</span>
+                <span className="text-[10px] opacity-80">(Standard)</span>
               </button>
 
               <button
@@ -308,14 +334,14 @@ export const TaskEvidenceModal: React.FC<TaskEvidenceModalProps> = ({
                   setSelectedPoints(10);
                   cuteSound.playSparkle();
                 }}
-                className={`p-2.5 rounded-2xl border text-center transition-all flex items-center justify-center gap-2 ${
+                className={`p-2.5 rounded-2xl border text-center transition-all flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 ${
                   selectedPoints === 10
                     ? 'bg-gradient-to-r from-pink-500 to-rose-500 text-white border-rose-600 shadow-md scale-[1.02]'
                     : 'bg-white text-pink-900 border-pink-200 hover:bg-pink-50'
                 }`}
               >
-                <span className="text-base font-black">10 Points</span>
-                <span className="text-[10px] opacity-80 font-bold">(Deep Work / Project) ✨</span>
+                <span className="text-sm sm:text-base font-black">10 Points</span>
+                <span className="text-[10px] opacity-80 font-bold">(Deep Work)</span>
               </button>
             </div>
           </div>

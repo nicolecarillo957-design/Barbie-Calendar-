@@ -57,6 +57,7 @@ export interface StudentStreakData {
 export interface CalendarEvent {
   id: string;
   title: string;
+  subject?: string;
   description?: string;
   category: EventCategory;
   date: string; // YYYY-MM-DD
@@ -78,11 +79,13 @@ export interface CalendarEvent {
 export interface UnscheduledTask {
   id: string;
   title: string;
+  subject?: string;
   category: EventCategory;
   estimatedMinutes: number;
   priority: Priority;
   completed: boolean;
   dueDate?: string;
+  dueTime?: string;
   description?: string;
   reminderMinutesBefore?: number;
   reminderTime?: string; // HH:mm or ISO
@@ -102,7 +105,7 @@ export interface CategoryConfig {
   description: string;
 }
 
-export type CalendarViewType = 'day' | 'week' | 'month' | 'insights' | 'audit';
+export type CalendarViewType = 'day' | 'week' | 'month' | 'assignments' | 'insights' | 'audit';
 
 export interface FocusSessionState {
   isActive: boolean;

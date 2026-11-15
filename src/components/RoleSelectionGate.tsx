@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { User } from 'firebase/auth';
+import { PortalUser } from '../localPortal';
 import { UserRole } from '../types/calendar';
 import { cuteSound } from '../utils/cuteSound';
 import {
@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 
 interface RoleSelectionGateProps {
-  user: User;
+  user: PortalUser;
   displayName: string;
   onSelectRole: (role: UserRole) => Promise<void>;
   onSignOut: () => Promise<void>;

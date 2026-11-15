@@ -1,20 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { User } from 'firebase/auth';
-import {
-  collection,
-  onSnapshot,
-  orderBy,
-  query,
-  where,
-} from 'firebase/firestore';
 import {
   CREATOR_ADMIN_EMAIL,
-  db,
-  handleFirestoreError,
-  OperationType,
+  PortalUser,
   replyToFeedbackMessage,
   sendFeedbackMessage,
-} from '../firebase';
+  subscribeFeedbackMessages,
+} from '../localPortal';
 import { FeedbackCategory, FeedbackMessage } from '../types/calendar';
 import { cuteSound } from '../utils/cuteSound';
 import {
@@ -29,7 +20,7 @@ import {
 } from 'lucide-react';
 
 interface FeedbackChatBoxProps {
-  currentUser: User;
+  currentUser: PortalUser;
 }
 
 const CATEGORY_OPTIONS: { id: FeedbackCategory; label: string; emoji: string }[] = [
@@ -54,48 +45,10 @@ export const FeedbackChatBox: React.FC<FeedbackChatBoxProps> = ({ currentUser })
   const isCreator =
     (currentUser.email || '').toLowerCase() === CREATOR_ADMIN_EMAIL.toLowerCase();
 
-  // Real-time listener on feedback_messages
+  // Real-time listener on local feedback messages store
   useEffect(() => {
     if (!currentUser) return;
-
-    const colRef = collection(db, 'feedback_messages');
-    // Creator sees all feedback messages; regular users see their own feedback chat
-    const q = isCreator
-      ? query(colRef, orderBy('createdAt', 'asc'))
-      : query(colRef, where('senderUid', '==', currentUser.uid));
-
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const loaded: FeedbackMessage[] = snapshot.docs.map((docSnap) => {
-          const data = docSnap.data();
-          const createdAtMs =
-            data.createdAt && typeof data.createdAt.toMillis === 'function'
-              ? data.createdAt.toMillis()
-              : Date.now();
-          return {
-            id: docSnap.id,
-            senderUid: data.senderUid,
-            senderName: data.senderName,
-            senderEmail: data.senderEmail,
-            senderPhotoUrl: data.senderPhotoUrl,
-            recipientEmail: data.recipientEmail,
-            category: data.category || 'feedback',
-            text: data.text,
-            replyText: data.replyText,
-            replyByEmail: data.replyByEmail,
-            createdAtMs,
-          };
-        });
-        loaded.sort((a, b) => (a.createdAtMs || 0) - (b.createdAtMs || 0));
-        setMessages(loaded);
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, 'feedback_messages');
-      }
-    );
-
-    return () => unsubscribe();
+    return subscribeFeedbackMessages(currentUser, isCreator, setMessages);
   }, [currentUser, isCreator]);
 
   useEffect(() => {

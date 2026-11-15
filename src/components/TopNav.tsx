@@ -16,6 +16,7 @@ import {
   LogOut,
   X,
   GraduationCap,
+  ClipboardList,
 } from 'lucide-react';
 
 interface TopNavProps {
@@ -192,8 +193,20 @@ export const TopNav: React.FC<TopNavProps> = ({
             </button>
           ))}
           <button
+            onClick={() => onViewChange('assignments')}
+            className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 text-xs font-bold rounded-lg transition-colors whitespace-nowrap shrink-0 ${
+              currentView === 'assignments'
+                ? 'bg-pink-500 text-white shadow-xs'
+                : 'text-pink-700 hover:text-pink-950 hover:bg-pink-200/40'
+            }`}
+            title="Assignments & Activities List"
+          >
+            <ClipboardList className="w-3.5 h-3.5" />
+            <span>Assignments</span>
+          </button>
+          <button
             onClick={() => onViewChange('insights')}
-            className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
+            className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 text-xs font-bold rounded-lg transition-colors whitespace-nowrap shrink-0 ${
               currentView === 'insights'
                 ? 'bg-pink-500 text-white shadow-xs'
                 : 'text-pink-700 hover:text-pink-950 hover:bg-pink-200/40'
@@ -205,7 +218,7 @@ export const TopNav: React.FC<TopNavProps> = ({
           </button>
           <button
             onClick={() => onViewChange('audit')}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors whitespace-nowrap shrink-0 ${
               currentView === 'audit'
                 ? 'bg-pink-500 text-white shadow-xs'
                 : 'text-pink-700 hover:text-pink-950 hover:bg-pink-200/40'
@@ -448,6 +461,7 @@ export const TopNav: React.FC<TopNavProps> = ({
               { id: 'day', label: 'Day' },
               { id: 'week', label: 'Week' },
               { id: 'month', label: 'Month' },
+              { id: 'assignments', label: 'Assignments 📝' },
               { id: 'insights', label: 'Insights 📊' },
               { id: 'audit', label: 'Audit 👑' },
             ] as const

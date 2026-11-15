@@ -88,7 +88,7 @@ service cloud.firestore {
           'startTime', 'endTime', 'isCompleted', 'priority', 'createdAt', 'updatedAt'
         ]) &&
         data.keys().hasOnly([
-          'id', 'ownerUid', 'teacherEmail', 'title', 'description', 'category',
+          'id', 'ownerUid', 'teacherEmail', 'title', 'subject', 'description', 'category',
           'date', 'startTime', 'endTime', 'isCompleted', 'priority',
           'location', 'meetingUrl', 'focusNotes', 'recurrence', 'sourceTaskId',
           'pointsValue', 'subtasks', 'reminders', 'evidence', 'createdAt', 'updatedAt'
@@ -99,6 +99,7 @@ service cloud.firestore {
         data.ownerUid == userId &&
         (!('teacherEmail' in data) || (data.teacherEmail is string && data.teacherEmail.size() <= 200)) &&
         data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+        (!('subject' in data) || (data.subject is string && data.subject.size() <= 80)) &&
         (!('description' in data) || (data.description is string && data.description.size() <= 2000)) &&
         data.category in ['deep_work', 'meetings', 'planning', 'health', 'personal', 'admin'] &&
         data.date is string && data.date.size() <= 20 && data.date.matches('^\\d{4}-\\d{2}-\\d{2}$') &&
@@ -125,8 +126,8 @@ service cloud.firestore {
           'priority', 'completed', 'createdAt', 'updatedAt'
         ]) &&
         data.keys().hasOnly([
-          'id', 'ownerUid', 'teacherEmail', 'title', 'category', 'estimatedMinutes',
-          'priority', 'completed', 'dueDate', 'description',
+          'id', 'ownerUid', 'teacherEmail', 'title', 'subject', 'category', 'estimatedMinutes',
+          'priority', 'completed', 'dueDate', 'dueTime', 'description',
           'reminderMinutesBefore', 'reminderTime', 'pointsValue', 'evidence',
           'createdAt', 'updatedAt'
         ]) &&
@@ -136,11 +137,13 @@ service cloud.firestore {
         data.ownerUid == userId &&
         (!('teacherEmail' in data) || (data.teacherEmail is string && data.teacherEmail.size() <= 200)) &&
         data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+        (!('subject' in data) || (data.subject is string && data.subject.size() <= 80)) &&
         data.category in ['deep_work', 'meetings', 'planning', 'health', 'personal', 'admin'] &&
         data.estimatedMinutes is int && data.estimatedMinutes >= 1 && data.estimatedMinutes <= 1440 &&
         data.priority in ['low', 'medium', 'high'] &&
         data.completed is bool &&
         (!('dueDate' in data) || (data.dueDate is string && data.dueDate.size() <= 20)) &&
+        (!('dueTime' in data) || (data.dueTime is string && data.dueTime.size() <= 10)) &&
         (!('description' in data) || (data.description is string && data.description.size() <= 2000)) &&
         (!('reminderMinutesBefore' in data) || (data.reminderMinutesBefore is int && data.reminderMinutesBefore >= 0 && data.reminderMinutesBefore <= 10080)) &&
         (!('reminderTime' in data) || (data.reminderTime is string && data.reminderTime.size() <= 64)) &&
@@ -241,7 +244,7 @@ service cloud.firestore {
           incoming().updatedAt == request.time && (
             // Tier 1: Student Owner edits own event
             (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly([
-              'teacherEmail', 'title', 'description', 'category', 'date', 'startTime', 'endTime',
+              'teacherEmail', 'title', 'subject', 'description', 'category', 'date', 'startTime', 'endTime',
               'isCompleted', 'priority', 'location', 'meetingUrl', 'focusNotes', 'recurrence',
               'sourceTaskId', 'pointsValue', 'subtasks', 'reminders', 'evidence', 'updatedAt'
             ])) ||
@@ -281,8 +284,8 @@ service cloud.firestore {
           incoming().updatedAt == request.time && (
             // Tier 1: Student Owner edits own task
             (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly([
-              'teacherEmail', 'title', 'category', 'estimatedMinutes', 'priority', 'completed',
-              'dueDate', 'description', 'reminderMinutesBefore', 'reminderTime',
+              'teacherEmail', 'title', 'subject', 'category', 'estimatedMinutes', 'priority', 'completed',
+              'dueDate', 'dueTime', 'description', 'reminderMinutesBefore', 'reminderTime',
               'pointsValue', 'evidence', 'updatedAt'
             ])) ||
             // Tier 2: Assigned Teacher or Admin verifies evidence & leaves feedback

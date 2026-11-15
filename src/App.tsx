@@ -4,15 +4,11 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import confetti from 'canvas-confetti';
-import { onAuthStateChanged, User } from 'firebase/auth';
 import {
-  collection,
-  doc,
-  onSnapshot,
-  query,
-  where,
-} from 'firebase/firestore';
+  triggerExtendedStreakCelebration,
+  triggerTaskPointsCelebration,
+} from './utils/celebrationConfetti';
+
 import {
   AppNotification,
   CalendarEvent,
@@ -37,27 +33,31 @@ import {
 } from './utils/streakUtils';
 import {
   CREATOR_ADMIN_EMAIL,
-  auth,
-  db,
-  deleteEventFromFirestore,
-  deleteTaskFromFirestore,
-  handleFirestoreError,
-  OperationType,
-  saveEventToFirestore,
-  saveTaskToFirestore,
+  PortalUser,
+  deleteEvent,
+  deleteTask,
+  ensureUserProfile,
+  saveEvent,
+  saveTask,
   signOutUser,
-  syncUserProfileToFirestore,
+  subscribeAuthState,
+  subscribeEvents,
+  subscribeMonitoredStudents,
+  subscribeTasks,
+  subscribeUserProfile,
+  syncUserProfile,
   updateAssignedTeacherEmail,
-  updateUserRoleInFirestore,
-  verifyEventEvidenceInFirestore,
-  verifyTaskEvidenceInFirestore,
-} from './firebase';
+  updateUserRole,
+  verifyEventEvidence,
+  verifyTaskEvidence,
+} from './localPortal';
 import { TopNav } from './components/TopNav';
 import { Sidebar } from './components/Sidebar';
 import { WeekView } from './components/WeekView';
 import { DayView } from './components/DayView';
 import { MonthView } from './components/MonthView';
 import { TimeAuditView } from './components/TimeAuditView';
+import { AssignmentsView } from './components/AssignmentsView';
 import { EventModal } from './components/EventModal';
 import { FocusModeModal } from './components/FocusModeModal';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
@@ -73,7 +73,6 @@ import { TeacherMonitorModal } from './components/TeacherMonitorModal';
 import { WeeklyInsightsView } from './components/WeeklyInsightsView';
 import { WeeklySummaryModal } from './components/WeeklySummaryModal';
 import { GmailLoginGate } from './components/GmailLoginGate';
-import { EmailVerificationGate } from './components/EmailVerificationGate';
 import { RoleSelectionGate } from './components/RoleSelectionGate';
 import { FeedbackChatBox } from './components/FeedbackChatBox';
 import { CalendarThemeId, THEME_CONFIGS } from './types/theme';
@@ -87,7 +86,7 @@ const INITIAL_NOTIFICATIONS: AppNotification[] = [
     id: 'notif-welcome',
     title: 'Welcome to EduTrack Calendar & Reward Portal! 🎀💖',
     message:
-      'Sign in synced with your Gmail! Complete tasks with picture proofs to earn 5–10 pts and keep your study streak going.',
+      'Sign in freely to start planning! Complete tasks with picture proofs to earn points and keep your study streak going.',
     timestamp: 'Just now',
     type: 'celebration',
     isRead: false,
@@ -95,22 +94,16 @@ const INITIAL_NOTIFICATIONS: AppNotification[] = [
 ];
 
 export default function App() {
-  // 0. Firebase Authentication State
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [emailVerifiedFlag, setEmailVerifiedFlag] = useState(false);
+  // 0. Local Portal Authentication State (No Firebase)
+  const [currentUser, setCurrentUser] = useState<PortalUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    const unsubscribe = subscribeAuthState(async (user) => {
       setCurrentUser(user);
-      setEmailVerifiedFlag(Boolean(user?.emailVerified));
-      if (user && user.emailVerified) {
+      if (user) {
         try {
-          await syncUserProfileToFirestore(
-            user,
-            DEFAULT_STREAK_DATA,
-            user.displayName || user.email?.split('@')[0] || 'Student'
-          );
+          await ensureUserProfile(user);
         } catch (err) {
           console.error('Failed initial profile sync', err);
         }
@@ -130,10 +123,10 @@ export default function App() {
   // 1. Calendar Date State (starts on today)
   const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
 
-  // 2. Active View ('week' | 'day' | 'month' | 'insights' | 'audit')
+  // 2. Active View ('week' | 'day' | 'month' | 'assignments' | 'insights' | 'audit')
   const [currentView, setCurrentView] = useState<CalendarViewType>('week');
 
-  // 3. Firestore-Synced User Profile, Role, Student Monitoring & Calendar Data
+  // 3. Local-Synced User Profile, Role, Student Monitoring & Calendar Data
   const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [studentName, setStudentName] = useState<string>('Student');
@@ -150,85 +143,47 @@ export default function App() {
     (currentUser?.email || '').toLowerCase() === CREATOR_ADMIN_EMAIL.toLowerCase();
   const isTeacherAccount = userRole === 'teacher';
 
-  // Listener A: Own User Profile in Firestore
+  // Listener A: Own User Profile
   useEffect(() => {
-    if (authLoading || !currentUser || !emailVerifiedFlag) return;
+    if (authLoading || !currentUser) return;
 
-    const userRef = doc(db, 'users', currentUser.uid);
-    const unsubscribe = onSnapshot(
-      userRef,
-      (snap) => {
-        setProfileLoaded(true);
-        if (!snap.exists()) return;
-        const data = snap.data();
-        const roleFromDb =
-          data.role === 'teacher' || data.role === 'student' ? (data.role as UserRole) : null;
-        setUserRole(roleFromDb);
-        setStudentName(
-          data.displayName || currentUser.displayName || currentUser.email?.split('@')[0] || 'Student'
-        );
-        setTeacherEmail(data.teacherEmail || '');
-        setStreakData({
-          currentStreak: data.currentStreak ?? 0,
-          bestStreak: data.bestStreak ?? 0,
-          totalPoints: data.totalPoints ?? 0,
-          lastActiveDate: data.lastActiveDate,
-          historyDates: Array.isArray(data.historyDates) ? data.historyDates : [],
-        });
-      },
-      (error) => {
-        setProfileLoaded(true);
-        handleFirestoreError(error, OperationType.GET, `users/${currentUser.uid}`);
-      }
-    );
+    const unsubscribe = subscribeUserProfile(currentUser.uid, (data) => {
+      setProfileLoaded(true);
+      if (!data) return;
+      const roleFromDb =
+        data.role === 'teacher' || data.role === 'student' ? (data.role as UserRole) : null;
+      setUserRole(roleFromDb);
+      setStudentName(
+        data.displayName || currentUser.displayName || currentUser.email?.split('@')[0] || 'Student'
+      );
+      setTeacherEmail(data.teacherEmail || '');
+      setStreakData({
+        currentStreak: data.currentStreak ?? 0,
+        bestStreak: data.bestStreak ?? 0,
+        totalPoints: data.totalPoints ?? 0,
+        lastActiveDate: data.lastActiveDate,
+        historyDates: Array.isArray(data.historyDates) ? data.historyDates : [],
+      });
+    });
 
     return () => unsubscribe();
-  }, [authLoading, currentUser, emailVerifiedFlag]);
+  }, [authLoading, currentUser]);
 
-  // Listener B: Students Assigned to Current User's Gmail (or All Users for Creator Admin)
+  // Listener B: Students Assigned to Current User's Email (or All Users for Creator Admin)
   useEffect(() => {
-    if (authLoading || !currentUser || !emailVerifiedFlag || !currentUser.email) return;
+    if (authLoading || !currentUser || !currentUser.email) return;
 
-    const usersRef = collection(db, 'users');
-    const q = isCreatorAdmin
-      ? query(usersRef)
-      : query(usersRef, where('teacherEmail', '==', currentUser.email.toLowerCase()));
-
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const list: UserProfileDoc[] = [];
-        snapshot.docs.forEach((docSnap) => {
-          if (docSnap.id === currentUser.uid) return;
-          const d = docSnap.data();
-          list.push({
-            uid: docSnap.id,
-            email: d.email || '',
-            displayName: d.displayName || d.email || 'Student',
-            photoURL: d.photoURL,
-            role: d.role === 'teacher' || d.role === 'student' ? d.role : undefined,
-            teacherEmail: d.teacherEmail,
-            currentStreak: d.currentStreak ?? 0,
-            bestStreak: d.bestStreak ?? 0,
-            totalPoints: d.totalPoints ?? 0,
-            lastActiveDate: d.lastActiveDate,
-            historyDates: Array.isArray(d.historyDates) ? d.historyDates : [],
-          });
-        });
-        setMonitoredStudents(list);
-        setMonitoredStudent((prev) => {
-          if (!prev) return null;
-          const refreshed = list.find((s) => s.uid === prev.uid);
-          return refreshed || null;
-        });
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, 'users');
-      }
-    );
+    const unsubscribe = subscribeMonitoredStudents(currentUser, isCreatorAdmin, (list) => {
+      setMonitoredStudents(list);
+      setMonitoredStudent((prev) => {
+        if (!prev) return null;
+        const refreshed = list.find((s) => s.uid === prev.uid);
+        return refreshed || null;
+      });
+    });
 
     return () => unsubscribe();
-  }, [authLoading, currentUser, emailVerifiedFlag, isCreatorAdmin]);
+  }, [authLoading, currentUser, isCreatorAdmin]);
 
   // Auto-select first linked student for Teachers; reset monitoredStudent when switching back to Student
   useEffect(() => {
@@ -252,113 +207,33 @@ export default function App() {
 
   // Listener C: Events for Active Calendar (Own or Selected Student)
   useEffect(() => {
-    if (authLoading || !currentUser || !emailVerifiedFlag) return;
+    if (authLoading || !currentUser) return;
     if (!activeTargetUid) {
       setEvents([]);
       return;
     }
 
-    const eventsRef = collection(db, 'users', activeTargetUid, 'events');
-    const q = isCreatorAdmin
-      ? query(eventsRef)
-      : activeTargetUid === currentUser.uid
-      ? query(eventsRef, where('ownerUid', '==', currentUser.uid))
-      : query(
-          eventsRef,
-          where('teacherEmail', '==', (currentUser.email || '').toLowerCase())
-        );
-
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const loaded: CalendarEvent[] = snapshot.docs.map((docSnap) => {
-          const d = docSnap.data();
-          return {
-            id: docSnap.id,
-            title: d.title,
-            description: d.description,
-            category: d.category,
-            date: d.date,
-            startTime: d.startTime,
-            endTime: d.endTime,
-            isCompleted: Boolean(d.isCompleted),
-            priority: d.priority || 'medium',
-            location: d.location,
-            meetingUrl: d.meetingUrl,
-            subtasks: d.subtasks,
-            focusNotes: d.focusNotes,
-            recurrence: d.recurrence,
-            sourceTaskId: d.sourceTaskId,
-            reminders: d.reminders,
-            evidence: d.evidence,
-            pointsValue: d.pointsValue,
-          };
-        });
-        setEvents(loaded);
-      },
-      (error) => {
-        handleFirestoreError(
-          error,
-          OperationType.LIST,
-          `users/${activeTargetUid}/events`
-        );
-      }
-    );
+    const unsubscribe = subscribeEvents(activeTargetUid, (loaded) => {
+      setEvents(loaded);
+    });
 
     return () => unsubscribe();
-  }, [authLoading, currentUser, emailVerifiedFlag, activeTargetUid, isCreatorAdmin]);
+  }, [authLoading, currentUser, activeTargetUid]);
 
   // Listener D: Tasks for Active Calendar (Own or Selected Student)
   useEffect(() => {
-    if (authLoading || !currentUser || !emailVerifiedFlag) return;
+    if (authLoading || !currentUser) return;
     if (!activeTargetUid) {
       setTasks([]);
       return;
     }
 
-    const tasksRef = collection(db, 'users', activeTargetUid, 'tasks');
-    const q = isCreatorAdmin
-      ? query(tasksRef)
-      : activeTargetUid === currentUser.uid
-      ? query(tasksRef, where('ownerUid', '==', currentUser.uid))
-      : query(
-          tasksRef,
-          where('teacherEmail', '==', (currentUser.email || '').toLowerCase())
-        );
-
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const loaded: UnscheduledTask[] = snapshot.docs.map((docSnap) => {
-          const d = docSnap.data();
-          return {
-            id: docSnap.id,
-            title: d.title,
-            category: d.category,
-            estimatedMinutes: d.estimatedMinutes ?? 30,
-            priority: d.priority || 'medium',
-            completed: Boolean(d.completed),
-            dueDate: d.dueDate,
-            description: d.description,
-            reminderMinutesBefore: d.reminderMinutesBefore,
-            reminderTime: d.reminderTime,
-            evidence: d.evidence,
-            pointsValue: d.pointsValue,
-          };
-        });
-        setTasks(loaded);
-      },
-      (error) => {
-        handleFirestoreError(
-          error,
-          OperationType.LIST,
-          `users/${activeTargetUid}/tasks`
-        );
-      }
-    );
+    const unsubscribe = subscribeTasks(activeTargetUid, (loaded) => {
+      setTasks(loaded);
+    });
 
     return () => unsubscribe();
-  }, [authLoading, currentUser, emailVerifiedFlag, activeTargetUid, isCreatorAdmin]);
+  }, [authLoading, currentUser, activeTargetUid]);
 
   // 4. Notifications State
   const [notifications, setNotifications] = useState<AppNotification[]>(() => {
@@ -676,17 +551,13 @@ export default function App() {
   const handleSaveEvent = useCallback(
     async (eventData: CalendarEvent) => {
       if (!currentUser || isCalendarReadOnly) return;
-      await saveEventToFirestore(
-        currentUser.uid,
-        eventData,
-        teacherEmail || undefined
-      );
+      await saveEvent(currentUser.uid, eventData);
 
       if (eventData.reminders && eventData.reminders.length > 0) {
         cuteSound.playSparkle();
       }
     },
-    [currentUser, isCalendarReadOnly, teacherEmail]
+    [currentUser, isCalendarReadOnly]
   );
 
   const handleDeleteEvent = useCallback(
@@ -695,7 +566,7 @@ export default function App() {
         if (isCalendarReadOnly) notifyReadOnlyMonitoring();
         return;
       }
-      await deleteEventFromFirestore(currentUser.uid, eventId);
+      await deleteEvent(currentUser.uid, eventId);
     },
     [currentUser, isCalendarReadOnly, notifyReadOnlyMonitoring]
   );
@@ -719,13 +590,9 @@ export default function App() {
         isCompleted: false,
         evidence: undefined,
       };
-      await saveEventToFirestore(
-        currentUser.uid,
-        dup,
-        teacherEmail || undefined
-      );
+      await saveEvent(currentUser.uid, dup);
     },
-    [currentUser, isCalendarReadOnly, teacherEmail]
+    [currentUser, isCalendarReadOnly]
   );
 
   const handleToggleComplete = useCallback(
@@ -739,11 +606,7 @@ export default function App() {
       if (!target) return;
 
       if (target.isCompleted) {
-        await saveEventToFirestore(
-          currentUser.uid,
-          { ...target, isCompleted: false },
-          teacherEmail || undefined
-        );
+        await saveEvent(currentUser.uid, { ...target, isCompleted: false });
         cuteSound.playCutePop();
       } else {
         setEvidenceTarget({
@@ -762,12 +625,7 @@ export default function App() {
         cuteSound.playSparkle();
       }
     },
-    [
-      currentUser,
-      isCalendarReadOnly,
-      events,
-      teacherEmail,
-    ]
+    [currentUser, isCalendarReadOnly, events]
   );
 
   const handleConfirmCompletionWithEvidence = useCallback(
@@ -780,54 +638,55 @@ export default function App() {
       if (evidenceTarget.type === 'event') {
         const target = events.find((e) => e.id === evidenceTarget.id);
         if (target) {
-          await saveEventToFirestore(
-            currentUser.uid,
-            {
-              ...target,
-              isCompleted: true,
-              evidence,
-              pointsValue: points,
-            },
-            teacherEmail || undefined
-          );
+          await saveEvent(currentUser.uid, {
+            ...target,
+            isCompleted: true,
+            evidence,
+            pointsValue: points,
+          });
         }
       } else {
         const target = tasks.find((t) => t.id === evidenceTarget.id);
         if (target) {
-          await saveTaskToFirestore(
-            currentUser.uid,
-            {
-              ...target,
-              completed: true,
-              evidence,
-              pointsValue: points,
-            },
-            teacherEmail || undefined
-          );
+          await saveTask(currentUser.uid, {
+            ...target,
+            completed: true,
+            evidence,
+            pointsValue: points,
+          });
         }
       }
 
       const updatedStreak = calculateUpdatedStreak(streakData, completedDate, points);
-      await syncUserProfileToFirestore(
+      await syncUserProfile(
         currentUser,
         updatedStreak,
         studentName,
         teacherEmail || undefined
       );
 
-      confetti({
-        particleCount: 75,
-        spread: 70,
-        origin: { y: 0.7 },
-        colors: ['#f472b6', '#ec4899', '#db2777', '#f59e0b', '#10b981'],
-      });
-      cuteSound.playCelebrationFanfare();
+      const hitSevenDayMilestone =
+        updatedStreak.currentStreak >= 7 &&
+        updatedStreak.currentStreak > streakData.currentStreak &&
+        updatedStreak.currentStreak % 7 === 0;
+
+      triggerTaskPointsCelebration(
+        points,
+        updatedStreak.currentStreak,
+        streakData.currentStreak
+      );
 
       triggerNotification({
-        title: `Task Verified! +${points} Points & Streak Burning! 🔥`,
-        message: `Picture proof stamped at ${
-          evidence.completedTimeFormatted.split(' at ')[1] || 'now'
-        }. Teacher can review anytime! 💖`,
+        title: hitSevenDayMilestone
+          ? `${updatedStreak.currentStreak}-Day Streak Milestone! +${points} Points! 🔥🎉`
+          : `Task Verified! +${points} Points & Streak Burning! 🔥`,
+        message: hitSevenDayMilestone
+          ? `Incredible ${updatedStreak.currentStreak}-day study streak unlocked! Picture proof stamped at ${
+              evidence.completedTimeFormatted.split(' at ')[1] || 'now'
+            }. 💖`
+          : `Picture proof stamped at ${
+              evidence.completedTimeFormatted.split(' at ')[1] || 'now'
+            }. Teacher can review anytime! 💖`,
         type: 'celebration',
       });
 
@@ -847,10 +706,20 @@ export default function App() {
     ]
   );
 
+  const handleCelebrateStreak = useCallback(() => {
+    triggerExtendedStreakCelebration();
+    triggerNotification({
+      title: `${streakData.currentStreak}-Day Study Streak Milestone! 🔥🎉`,
+      message:
+        'Amazing consistency! Celebrate your 7-day study milestone and keep completing tasks with picture proof!',
+      type: 'celebration',
+    });
+  }, [streakData.currentStreak, triggerNotification]);
+
   const handleUpdateEventEvidence = useCallback(
     async (eventId: string, updatedEvidence: TaskEvidence) => {
       if (!activeTargetUid) return;
-      await verifyEventEvidenceInFirestore(activeTargetUid, eventId, updatedEvidence);
+      await verifyEventEvidence(activeTargetUid, eventId, updatedEvidence);
     },
     [activeTargetUid]
   );
@@ -858,7 +727,7 @@ export default function App() {
   const handleUpdateTaskEvidence = useCallback(
     async (taskId: string, updatedEvidence: TaskEvidence) => {
       if (!activeTargetUid) return;
-      await verifyTaskEvidenceInFirestore(activeTargetUid, taskId, updatedEvidence);
+      await verifyTaskEvidence(activeTargetUid, taskId, updatedEvidence);
     },
     [activeTargetUid]
   );
@@ -874,19 +743,9 @@ export default function App() {
       const updatedSubtasks = ev.subtasks.map((st) =>
         st.id === subtaskId ? { ...st, completed: !st.completed } : st
       );
-      await saveEventToFirestore(
-        currentUser.uid,
-        { ...ev, subtasks: updatedSubtasks },
-        teacherEmail || undefined
-      );
+      await saveEvent(currentUser.uid, { ...ev, subtasks: updatedSubtasks });
     },
-    [
-      currentUser,
-      isCalendarReadOnly,
-      notifyReadOnlyMonitoring,
-      events,
-      teacherEmail,
-    ]
+    [currentUser, isCalendarReadOnly, notifyReadOnlyMonitoring, events]
   );
 
   // Backlog / Task Handlers
@@ -901,13 +760,20 @@ export default function App() {
         id: `task_${Date.now()}`,
         completed: false,
       };
-      await saveTaskToFirestore(
-        currentUser.uid,
-        newTask,
-        teacherEmail || undefined
-      );
+      await saveTask(currentUser.uid, newTask);
     },
-    [currentUser, isCalendarReadOnly, notifyReadOnlyMonitoring, teacherEmail]
+    [currentUser, isCalendarReadOnly, notifyReadOnlyMonitoring]
+  );
+
+  const handleUpdateTask = useCallback(
+    async (updatedTask: UnscheduledTask) => {
+      if (!currentUser || isCalendarReadOnly) {
+        if (isCalendarReadOnly) notifyReadOnlyMonitoring();
+        return;
+      }
+      await saveTask(currentUser.uid, updatedTask);
+    },
+    [currentUser, isCalendarReadOnly, notifyReadOnlyMonitoring]
   );
 
   const handleToggleTaskComplete = useCallback(
@@ -921,11 +787,7 @@ export default function App() {
       if (!target) return;
 
       if (target.completed) {
-        await saveTaskToFirestore(
-          currentUser.uid,
-          { ...target, completed: false },
-          teacherEmail || undefined
-        );
+        await saveTask(currentUser.uid, { ...target, completed: false });
         cuteSound.playCutePop();
       } else {
         setEvidenceTarget({
@@ -940,13 +802,7 @@ export default function App() {
         cuteSound.playSparkle();
       }
     },
-    [
-      currentUser,
-      isCalendarReadOnly,
-      notifyReadOnlyMonitoring,
-      tasks,
-      teacherEmail,
-    ]
+    [currentUser, isCalendarReadOnly, notifyReadOnlyMonitoring, tasks]
   );
 
   const handleDeleteTask = useCallback(
@@ -955,7 +811,7 @@ export default function App() {
         if (isCalendarReadOnly) notifyReadOnlyMonitoring();
         return;
       }
-      await deleteTaskFromFirestore(currentUser.uid, taskId);
+      await deleteTask(currentUser.uid, taskId);
     },
     [currentUser, isCalendarReadOnly, notifyReadOnlyMonitoring]
   );
@@ -968,11 +824,7 @@ export default function App() {
       const current = target.reminderMinutesBefore;
       const next = !current ? 15 : current === 15 ? 30 : current === 30 ? 60 : undefined;
 
-      await saveTaskToFirestore(
-        currentUser.uid,
-        { ...target, reminderMinutesBefore: next },
-        teacherEmail || undefined
-      );
+      await saveTask(currentUser.uid, { ...target, reminderMinutesBefore: next });
 
       if (next) {
         cuteSound.playSparkle();
@@ -986,7 +838,7 @@ export default function App() {
         cuteSound.playCutePop();
       }
     },
-    [currentUser, isCalendarReadOnly, tasks, teacherEmail, triggerNotification]
+    [currentUser, isCalendarReadOnly, tasks, triggerNotification]
   );
 
   const handleScheduleTask = useCallback(
@@ -1005,13 +857,15 @@ export default function App() {
       const newEvent: CalendarEvent = {
         id: `evt_${Date.now()}`,
         title: task.title,
+        subject: task.subject,
         description: task.description,
         category: task.category,
-        date: activeDateStr,
+        date: task.dueDate || activeDateStr,
         startTime: startStr,
         endTime: endStr,
         isCompleted: false,
         priority: task.priority,
+        pointsValue: task.pointsValue,
         sourceTaskId: task.id,
         reminders: task.reminderMinutesBefore
           ? [
@@ -1056,7 +910,7 @@ export default function App() {
       } else if (monitoredStudents.length > 0 && !monitoredStudent) {
         setMonitoredStudent(monitoredStudents[0]);
       }
-      await updateUserRoleInFirestore(currentUser, role, streakData, studentName);
+      await updateUserRole(currentUser, role, streakData, studentName);
     },
     [currentUser, monitoredStudents, monitoredStudent, streakData, studentName]
   );
@@ -1065,7 +919,7 @@ export default function App() {
     async (newName: string) => {
       if (!currentUser) return;
       setStudentName(newName);
-      await syncUserProfileToFirestore(
+      await syncUserProfile(
         currentUser,
         streakData,
         newName,
@@ -1096,8 +950,8 @@ export default function App() {
   const handleResetData = useCallback(async () => {
     if (!currentUser || isCalendarReadOnly) return;
     await Promise.all([
-      ...events.map((ev) => deleteEventFromFirestore(currentUser.uid, ev.id)),
-      ...tasks.map((t) => deleteTaskFromFirestore(currentUser.uid, t.id)),
+      ...events.map((ev) => deleteEvent(currentUser.uid, ev.id)),
+      ...tasks.map((t) => deleteTask(currentUser.uid, t.id)),
     ]);
     setNotifications(INITIAL_NOTIFICATIONS);
     localStorage.removeItem(NOTIFS_STORAGE_KEY);
@@ -1107,15 +961,11 @@ export default function App() {
     async (data: { events: CalendarEvent[]; tasks: UnscheduledTask[] }) => {
       if (!currentUser || isCalendarReadOnly) return;
       await Promise.all([
-        ...data.events.map((ev) =>
-          saveEventToFirestore(currentUser.uid, ev, teacherEmail || undefined)
-        ),
-        ...data.tasks.map((t) =>
-          saveTaskToFirestore(currentUser.uid, t, teacherEmail || undefined)
-        ),
+        ...data.events.map((ev) => saveEvent(currentUser.uid, ev)),
+        ...data.tasks.map((t) => saveTask(currentUser.uid, t)),
       ]);
     },
-    [currentUser, isCalendarReadOnly, teacherEmail]
+    [currentUser, isCalendarReadOnly]
   );
 
   // Global Keyboard Navigation
@@ -1284,7 +1134,7 @@ export default function App() {
     ? DEFAULT_STREAK_DATA
     : streakData;
 
-  if (authLoading || (currentUser && emailVerifiedFlag && !profileLoaded)) {
+  if (authLoading || (currentUser && !profileLoaded)) {
     return (
       <div className="min-h-[100dvh] w-full bg-gradient-to-br from-pink-100 via-rose-50 to-fuchsia-100 flex flex-col items-center justify-center p-4 font-sans text-pink-950">
         <div className="w-14 h-14 rounded-2xl bg-pink-500 text-white flex items-center justify-center shadow-lg animate-bounce mb-3 text-2xl">
@@ -1300,27 +1150,6 @@ export default function App() {
 
   if (!currentUser) {
     return <GmailLoginGate />;
-  }
-
-  if (!emailVerifiedFlag) {
-    return (
-      <EmailVerificationGate
-        user={currentUser}
-        onVerified={async (updatedUser) => {
-          setCurrentUser(updatedUser);
-          setEmailVerifiedFlag(true);
-          try {
-            await syncUserProfileToFirestore(
-              updatedUser,
-              DEFAULT_STREAK_DATA,
-              updatedUser.displayName || updatedUser.email?.split('@')[0] || 'Student'
-            );
-          } catch (err) {
-            console.error('Failed post-verification profile sync', err);
-          }
-        }}
-      />
-    );
   }
 
   if (!userRole) {
@@ -1525,6 +1354,7 @@ export default function App() {
           monitoredStudent={monitoredStudent}
           onSelectStudentToMonitor={(stu) => setMonitoredStudent(stu)}
           pendingProofCount={pendingProofCount}
+          onCelebrateStreak={handleCelebrateStreak}
         />
 
         {/* Viewport Content (with pb-16 on mobile for the mobile bottom nav bar) */}
@@ -1637,6 +1467,25 @@ export default function App() {
             />
           )}
 
+          {currentView === 'assignments' && (
+            <AssignmentsView
+              events={searchedEvents}
+              tasks={tasks}
+              studentName={displayedStudentName}
+              totalPoints={displayedStreakData.totalPoints}
+              readOnly={isCalendarReadOnly}
+              onAddTask={handleAddTask}
+              onUpdateTask={handleUpdateTask}
+              onDeleteTask={handleDeleteTask}
+              onToggleTaskComplete={handleToggleTaskComplete}
+              onScheduleTask={handleScheduleTask}
+              onSaveEvent={handleSaveEvent}
+              onDeleteEvent={handleDeleteEvent}
+              onToggleEventComplete={handleToggleComplete}
+              onOpenTeacherMonitor={() => setIsTeacherMonitorOpen(true)}
+            />
+          )}
+
           {currentView === 'insights' && (
             <WeeklyInsightsView
               currentDate={currentDate}
@@ -1718,11 +1567,7 @@ export default function App() {
                 ...eventData,
                 id: `evt_destress_${Date.now()}`,
               };
-              await saveEventToFirestore(
-                currentUser.uid,
-                newEv,
-                teacherEmail || undefined
-              );
+              await saveEvent(currentUser.uid, newEv);
               triggerNotification({
                 title: `${newEv.title} Scheduled! 🌿`,
                 message:
@@ -1740,11 +1585,7 @@ export default function App() {
                 priority: 'medium',
                 completed: false,
               };
-              await saveTaskToFirestore(
-                currentUser.uid,
-                newTask,
-                teacherEmail || undefined
-              );
+              await saveTask(currentUser.uid, newTask);
             }}
           />
 

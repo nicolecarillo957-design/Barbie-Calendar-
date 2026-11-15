@@ -29,6 +29,7 @@ import {
   Lock,
   Users,
   Eye,
+  PartyPopper,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -66,6 +67,7 @@ interface SidebarProps {
   monitoredStudent?: UserProfileDoc | null;
   onSelectStudentToMonitor?: (stu: UserProfileDoc | null) => void;
   pendingProofCount?: number;
+  onCelebrateStreak?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -102,6 +104,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   monitoredStudent = null,
   onSelectStudentToMonitor,
   pendingProofCount = 0,
+  onCelebrateStreak,
 }) => {
   const isTeacherAccount = userRole === 'teacher';
   // Default mobile drawer tab to 'all' so every tool/account control is immediately visible!
@@ -287,6 +290,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     { id: 'day', label: 'Day' },
                     { id: 'week', label: 'Week' },
                     { id: 'month', label: 'Month' },
+                    { id: 'assignments', label: 'Assignments 📝' },
                     { id: 'insights', label: 'Insights 📊' },
                     { id: 'audit', label: 'Time Audit 👑' },
                   ] as const
@@ -475,6 +479,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <p className="text-[11px] text-amber-900/80 font-medium leading-snug mb-2">
                     Finish calendar tasks with picture proof to earn 5–10 points and keep your streak!
                   </p>
+
+                  {streakData.currentStreak >= 7 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onCloseMobile) onCloseMobile();
+                        if (onCelebrateStreak) onCelebrateStreak();
+                      }}
+                      className="w-full mb-2 py-2 px-3 bg-gradient-to-r from-amber-400 via-pink-500 to-fuchsia-500 hover:from-amber-500 hover:via-pink-600 hover:to-fuchsia-600 text-white rounded-xl text-xs font-black shadow-md shadow-pink-300/60 flex items-center justify-center gap-1.5 transition-all active:scale-95 border border-amber-200"
+                      title="Celebrate your 7-day study streak milestone!"
+                    >
+                      <PartyPopper className="w-4 h-4 shrink-0 animate-bounce" />
+                      <span>Celebrate Streak 🎉</span>
+                    </button>
+                  )}
 
                   <div className="grid grid-cols-2 gap-1.5">
                     <button

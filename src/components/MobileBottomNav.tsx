@@ -3,11 +3,11 @@ import { CalendarViewType, UserRole } from '../types/calendar';
 import {
   Plus,
   Layers,
-  Inbox,
   GraduationCap,
   CalendarDays,
   BarChart3,
   FileText,
+  ClipboardList,
 } from 'lucide-react';
 
 interface MobileBottomNavProps {
@@ -113,21 +113,23 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
 
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-white/95 backdrop-blur-md border-t border-pink-200 z-40 flex items-center justify-around px-2 shadow-lg">
-      {/* 1. Task Inbox */}
+      {/* 1. Assignments List View */}
       <button
-        onClick={onOpenInbox}
-        className="relative flex flex-col items-center justify-center flex-1 py-1 text-pink-700 hover:text-pink-900 transition-colors"
-        title="Open Task Inbox & Backlog"
+        onClick={() => onViewChange('assignments')}
+        className={`relative flex flex-col items-center justify-center flex-1 py-1 transition-colors ${
+          currentView === 'assignments' ? 'text-pink-600' : 'text-pink-700 hover:text-pink-900'
+        }`}
+        title="View Assignments List"
       >
         <div className="relative">
-          <Inbox className="w-5 h-5" />
+          <ClipboardList className="w-5 h-5" />
           {pendingTaskCount > 0 && (
             <span className="absolute -top-1.5 -right-2 min-w-[16px] h-4 px-1 rounded-full bg-pink-500 text-white font-mono text-[9px] font-bold flex items-center justify-center shadow-xs">
               {pendingTaskCount > 9 ? '9+' : pendingTaskCount}
             </span>
           )}
         </div>
-        <span className="text-[10px] mt-0.5 font-extrabold">Inbox</span>
+        <span className="text-[10px] mt-0.5 font-extrabold">Tasks</span>
       </button>
 
       {/* 2. Teacher Monitor & Streak */}
