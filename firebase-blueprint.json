@@ -2,7 +2,7 @@
   "entities": {
     "UserProfile": {
       "title": "UserProfile",
-      "description": "Signed-in Gmail user profile, student/teacher monitoring link, and study streak summary.",
+      "description": "Signed-in Google user profile, student/teacher monitoring link, and study streak summary.",
       "type": "object",
       "properties": {
         "uid": {
@@ -15,6 +15,7 @@
         "email": {
           "type": "string",
           "format": "email",
+          "minLength": 3,
           "maxLength": 200,
           "description": "Verified Gmail address of the signed-in user."
         },
@@ -116,7 +117,7 @@
         "subject": {
           "type": "string",
           "maxLength": 80,
-          "description": "Academic subject or course name (e.g. General Physics, Gen Math)."
+          "description": "Academic subject or course name."
         },
         "description": {
           "type": "string",
@@ -136,11 +137,13 @@
         },
         "startTime": {
           "type": "string",
+          "minLength": 1,
           "maxLength": 10,
           "description": "Start time in HH:mm format."
         },
         "endTime": {
           "type": "string",
+          "minLength": 1,
           "maxLength": 10,
           "description": "End time in HH:mm format."
         },
@@ -163,9 +166,28 @@
           "maxLength": 500,
           "description": "Optional meeting link."
         },
+        "focusNotes": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Optional focus notes."
+        },
+        "recurrence": {
+          "type": "string",
+          "enum": ["none", "daily", "weekdays", "weekly"],
+          "description": "Optional repeat pattern."
+        },
+        "sourceTaskId": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Optional source task ID."
+        },
         "pointsValue": {
           "type": "integer",
-          "description": "Points value (5 or 10)."
+          "description": "Points value (e.g., 5-100)."
+        },
+        "order": {
+          "type": "integer",
+          "description": "Custom drag-and-drop sort order."
         },
         "subtasks": {
           "type": "array",
@@ -206,7 +228,7 @@
     },
     "UnscheduledTaskDoc": {
       "title": "UnscheduledTaskDoc",
-      "description": "An unscheduled backlog task with optional completion evidence.",
+      "description": "An unscheduled backlog task or assignment with optional completion evidence.",
       "type": "object",
       "properties": {
         "id": {
@@ -276,9 +298,18 @@
           "type": "integer",
           "description": "Optional reminder offset."
         },
+        "reminderTime": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Optional reminder time."
+        },
         "pointsValue": {
           "type": "integer",
           "description": "Points value."
+        },
+        "order": {
+          "type": "integer",
+          "description": "Custom drag-and-drop sort order."
         },
         "evidence": {
           "type": "object",
@@ -309,7 +340,7 @@
     },
     "FeedbackMessageDoc": {
       "title": "FeedbackMessageDoc",
-      "description": "User chat and feedback message sent to the app creator.",
+      "description": "Real-time 1-on-1 chat thread between a user and the app creator (nicolecarillo957@gmail.com).",
       "type": "object",
       "properties": {
         "id": {
@@ -324,7 +355,7 @@
           "minLength": 1,
           "maxLength": 128,
           "pattern": "^[a-zA-Z0-9_\\-]+$",
-          "description": "UID of the signed-in sender."
+          "description": "UID of the signed-in thread initiator."
         },
         "senderName": {
           "type": "string",
@@ -335,6 +366,7 @@
         "senderEmail": {
           "type": "string",
           "format": "email",
+          "minLength": 3,
           "maxLength": 200,
           "description": "Verified Gmail of the sender."
         },
@@ -346,8 +378,9 @@
         "recipientEmail": {
           "type": "string",
           "format": "email",
+          "minLength": 3,
           "maxLength": 200,
-          "description": "Creator email receiving the feedback."
+          "description": "Recipient Gmail (app creator for user-initiated threads, or target user for creator-initiated threads)."
         },
         "category": {
           "type": "string",
@@ -358,17 +391,37 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 1000,
-          "description": "Feedback or chat message body."
+          "description": "Initial message body."
         },
         "replyText": {
           "type": "string",
           "maxLength": 1000,
-          "description": "Optional reply from the app creator."
+          "description": "Latest reply text from the app creator."
         },
         "replyByEmail": {
           "type": "string",
           "maxLength": 200,
           "description": "Creator email who replied."
+        },
+        "replyAtMs": {
+          "type": "integer",
+          "description": "Epoch ms of latest creator reply."
+        },
+        "replies": {
+          "type": "array",
+          "description": "Bounded conversation reply history (max 100 messages per thread)."
+        },
+        "seenByCreator": {
+          "type": "boolean",
+          "description": "Whether the app creator has seen the latest user message."
+        },
+        "seenBySender": {
+          "type": "boolean",
+          "description": "Whether the user participant has seen the latest creator message."
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "description": "Client display ordering timestamp."
         },
         "createdAt": {
           "type": "string",
@@ -389,6 +442,76 @@
         "recipientEmail",
         "category",
         "text",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "TeacherLinkNotificationDoc": {
+      "title": "TeacherLinkNotificationDoc",
+      "description": "Instant notification created when a student links their teacher Gmail.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Notification document ID."
+        },
+        "teacherEmail": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 200,
+          "description": "Verified lowercase Gmail of the teacher being notified."
+        },
+        "studentUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the linking student."
+        },
+        "studentName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Display name of the linking student."
+        },
+        "studentEmail": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 200,
+          "description": "Verified Gmail of the linking student."
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "description": "Client creation epoch milliseconds."
+        },
+        "seenByTeacher": {
+          "type": "boolean",
+          "description": "Whether the linked teacher has acknowledged the alert."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": [
+        "id",
+        "teacherEmail",
+        "studentUid",
+        "studentName",
+        "studentEmail",
+        "createdAtMs",
+        "seenByTeacher",
         "createdAt",
         "updatedAt"
       ]
@@ -417,7 +540,13 @@
       "schema": {
         "$ref": "#/entities/FeedbackMessageDoc"
       },
-      "description": "Stores user thoughts, feedback, and chat messages directed to the app creator."
+      "description": "Stores two-way chat threads between signed-in users and the app creator."
+    },
+    "/teacher_notifications/{notifId}": {
+      "schema": {
+        "$ref": "#/entities/TeacherLinkNotificationDoc"
+      },
+      "description": "Stores real-time notifications sent to a teacher when a student links their Gmail."
     }
   }
 }

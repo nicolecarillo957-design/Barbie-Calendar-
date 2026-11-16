@@ -171,6 +171,7 @@ export interface TeacherLinkNotification {
   studentName: string;
   studentEmail: string;
   createdAtMs: number;
+  seenByTeacher?: boolean;
   seenByUids?: string[];
 }
 

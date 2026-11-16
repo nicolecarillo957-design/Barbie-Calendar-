@@ -1,9 +1,40 @@
 import {
+  User as FirebaseUser,
+  onAuthStateChanged,
+  signInWithPopup,
+  signOut,
+} from 'firebase/auth';
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  where,
+  writeBatch,
+} from 'firebase/firestore';
+import {
+  auth,
+  db,
+  googleProvider,
+  handleFirestoreError,
+  OperationType,
+} from './firebase';
+import {
   CalendarEvent,
+  EventCategory,
   FeedbackCategory,
   FeedbackMessage,
   FeedbackReply,
+  Priority,
+  ReminderSetting,
   StudentStreakData,
+  Subtask,
   TaskEvidence,
   TeacherLinkNotification,
   UnscheduledTask,
@@ -12,7 +43,6 @@ import {
 } from './types/calendar';
 
 export const CREATOR_ADMIN_EMAIL = 'nicolecarillo957@gmail.com';
-const PORTAL_STORAGE_KEY = 'edutrack_local_portal_v1';
 
 export interface PortalUser {
   uid: string;
@@ -21,610 +51,405 @@ export interface PortalUser {
   photoURL?: string;
 }
 
-interface StoredAccount {
-  user: PortalUser;
-  password: string;
+const VALID_CATEGORIES: EventCategory[] = [
+  'deep_work',
+  'meetings',
+  'planning',
+  'health',
+  'personal',
+  'admin',
+];
+const VALID_PRIORITIES: Priority[] = ['low', 'medium', 'high'];
+const teacherEmailCache = new Map<string, string>();
+
+function normalizeEmail(raw?: string | null): string {
+  return (raw || '').trim().toLowerCase().slice(0, 200);
 }
 
-interface PortalStoreState {
-  currentUid: string | null;
-  accounts: Record<string, StoredAccount>;
-  profiles: Record<string, UserProfileDoc>;
-  eventsByUid: Record<string, CalendarEvent[]>;
-  tasksByUid: Record<string, UnscheduledTask[]>;
-  feedbackMessages: FeedbackMessage[];
-  teacherNotifications: TeacherLinkNotification[];
+function clampStr(raw: string | undefined | null, maxLen: number): string {
+  return (raw ?? '').trim().slice(0, maxLen);
 }
 
-const DEFAULT_STORE: PortalStoreState = {
-  currentUid: null,
-  accounts: {},
-  profiles: {},
-  eventsByUid: {},
-  tasksByUid: {},
-  feedbackMessages: [],
-  teacherNotifications: [],
-};
-
-type StoreListener = () => void;
-const listeners = new Set<StoreListener>();
-let lastRemoteDigest = '';
-let hasMergedInitialLocal = false;
-let syncInFlight: Promise<void> | null = null;
-let pendingResync = false;
-let syncPollerStarted = false;
-
-function parseEmailList(raw?: string): string[] {
-  if (!raw) return [];
-  return Array.from(
-    new Set(
-      raw
-        .toLowerCase()
-        .split(/[\s,;]+/)
-        .map((s) => s.trim())
-        .filter((s) => s.includes('@'))
-    )
-  );
+function clampInt(val: unknown, min: number, max: number, fallback: number): number {
+  const num = typeof val === 'number' && Number.isFinite(val) ? Math.round(val) : fallback;
+  return Math.max(min, Math.min(max, num));
 }
 
-function loadStore(): PortalStoreState {
-  try {
-    const raw = localStorage.getItem(PORTAL_STORAGE_KEY);
-    if (!raw) return { ...DEFAULT_STORE };
-    const parsed = JSON.parse(raw) as Partial<PortalStoreState>;
-    return {
-      currentUid: parsed.currentUid ?? null,
-      accounts: parsed.accounts ?? {},
-      profiles: parsed.profiles ?? {},
-      eventsByUid: parsed.eventsByUid ?? {},
-      tasksByUid: parsed.tasksByUid ?? {},
-      feedbackMessages: Array.isArray(parsed.feedbackMessages) ? parsed.feedbackMessages : [],
-      teacherNotifications: Array.isArray(parsed.teacherNotifications)
-        ? parsed.teacherNotifications
-        : [],
-    };
-  } catch {
-    return { ...DEFAULT_STORE };
-  }
-}
-
-function saveStore(next: PortalStoreState): void {
-  try {
-    localStorage.setItem(PORTAL_STORAGE_KEY, JSON.stringify(next));
-  } catch (err) {
-    console.error('Could not save portal state to localStorage:', err);
-  }
-  listeners.forEach((cb) => cb());
-}
-
-let portalWs: WebSocket | null = null;
-let wsReconnectTimer: number | null = null;
-
-function sendWsPacket(type: string, payload?: unknown): void {
-  try {
-    if (portalWs && portalWs.readyState === WebSocket.OPEN) {
-      portalWs.send(JSON.stringify({ type, payload }));
-    }
-  } catch {
-    // REST fallback always runs in parallel
-  }
-}
-
-function mergeFeedbackMessages(
-  remoteMsgs: FeedbackMessage[],
-  localMsgs: FeedbackMessage[]
-): FeedbackMessage[] {
-  const byId = new Map<string, FeedbackMessage>();
-  const cutoffMs = Date.now() - 30000;
-
-  for (const r of remoteMsgs) {
-    if (r?.id) byId.set(r.id, r);
-  }
-
-  for (const l of localMsgs) {
-    if (!l?.id) continue;
-    const remote = byId.get(l.id);
-    if (!remote) {
-      if ((l.createdAtMs || 0) >= cutoffMs) {
-        byId.set(l.id, l);
-      }
-      continue;
-    }
-
-    // Union replies by reply.id so optimistic recent replies aren't dropped mid-flight
-    const remoteReplies = Array.isArray(remote.replies) ? remote.replies : [];
-    const localReplies = Array.isArray(l.replies) ? l.replies : [];
-    if (localReplies.length > 0) {
-      const replyMap = new Map<string, FeedbackReply>();
-      remoteReplies.forEach((rep) => {
-        if (rep?.id) replyMap.set(rep.id, rep);
-      });
-      localReplies.forEach((rep) => {
-        if (rep?.id && !replyMap.has(rep.id) && (rep.createdAtMs || 0) >= cutoffMs) {
-          replyMap.set(rep.id, rep);
-        }
-      });
-      const mergedReplies = Array.from(replyMap.values()).sort(
-        (a, b) => (a.createdAtMs || 0) - (b.createdAtMs || 0)
-      );
-      byId.set(l.id, {
-        ...remote,
-        replies: mergedReplies,
-      });
-    }
-  }
-
-  return Array.from(byId.values()).sort(
-    (a, b) => (a.createdAtMs || 0) - (b.createdAtMs || 0)
-  );
-}
-
-function applyServerSyncPayload(payload: Partial<PortalStoreState>): void {
-  if (!payload || typeof payload !== 'object') return;
-  const digest = JSON.stringify(payload);
-  if (digest === lastRemoteDigest) return;
-  lastRemoteDigest = digest;
-
-  const local = loadStore();
-  const localSeenMap = new Map<string, string[]>();
-  local.teacherNotifications.forEach((n) => {
-    if (n.seenByUids && n.seenByUids.length > 0) {
-      localSeenMap.set(n.id, n.seenByUids);
-    }
-  });
-
-  const remoteNotifs = Array.isArray(payload.teacherNotifications)
-    ? payload.teacherNotifications
-    : [];
-  const remoteIds = new Set(remoteNotifs.map((n) => n.id));
-  const mergedNotifs: TeacherLinkNotification[] = remoteNotifs.map((n) => {
-    const localSeen = localSeenMap.get(n.id) ?? [];
-    if (localSeen.length === 0) return n;
-    const unionSeen = Array.from(new Set([...(n.seenByUids ?? []), ...localSeen]));
-    return { ...n, seenByUids: unionSeen };
-  });
-
-  const cutoffMs = Date.now() - 15000;
-  local.teacherNotifications.forEach((n) => {
-    if (!remoteIds.has(n.id) && (n.createdAtMs || 0) >= cutoffMs) {
-      mergedNotifs.push(n);
-    }
-  });
-
-  const next: PortalStoreState = {
-    currentUid: local.currentUid,
-    accounts: { ...local.accounts, ...(payload.accounts ?? {}) },
-    profiles: { ...local.profiles, ...(payload.profiles ?? {}) },
-    eventsByUid: { ...local.eventsByUid, ...(payload.eventsByUid ?? {}) },
-    tasksByUid: { ...local.tasksByUid, ...(payload.tasksByUid ?? {}) },
-    feedbackMessages: Array.isArray(payload.feedbackMessages)
-      ? mergeFeedbackMessages(payload.feedbackMessages, local.feedbackMessages)
-      : local.feedbackMessages,
-    teacherNotifications: mergedNotifs,
-  };
-  saveStore(next);
-}
-
-async function postJson<T = unknown>(url: string, body: unknown): Promise<T | null> {
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const data = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
-    if (!res.ok) {
-      if (data?.error) throw new Error(data.error);
-      return null;
-    }
-    return data;
-  } catch (err) {
-    if (err instanceof Error && err.message && !err.message.includes('Failed to fetch')) {
-      throw err;
-    }
-    return null;
-  }
-}
-
-export async function syncPortalNow(): Promise<void> {
-  if (syncInFlight) {
-    pendingResync = true;
-    return syncInFlight;
-  }
-  syncInFlight = (async () => {
-    try {
-      if (!hasMergedInitialLocal) {
-        hasMergedInitialLocal = true;
-        const local = loadStore();
-        const res = await fetch('/api/portal/merge-local', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            accounts: local.accounts,
-            profiles: local.profiles,
-            eventsByUid: local.eventsByUid,
-            tasksByUid: local.tasksByUid,
-            feedbackMessages: local.feedbackMessages,
-            teacherNotifications: local.teacherNotifications,
-          }),
-        });
-        if (res.ok) {
-          const data = (await res.json()) as Partial<PortalStoreState>;
-          applyServerSyncPayload(data);
-          return;
-        }
-      }
-
-      const res = await fetch('/api/portal/sync', { cache: 'no-store' });
-      if (res.ok) {
-        const data = (await res.json()) as Partial<PortalStoreState>;
-        applyServerSyncPayload(data);
-      }
-    } catch {
-      // Backend optional fallback: continue with localStorage smoothly
-    } finally {
-      syncInFlight = null;
-      if (pendingResync) {
-        pendingResync = false;
-        void syncPortalNow();
-      }
-    }
-  })();
-  return syncInFlight;
-}
-
-function connectPortalWebSocket(): void {
-  if (typeof window === 'undefined' || typeof WebSocket === 'undefined') return;
-  if (portalWs && (portalWs.readyState === WebSocket.OPEN || portalWs.readyState === WebSocket.CONNECTING)) {
-    return;
-  }
-
-  try {
-    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProto}//${window.location.host}/ws/portal`;
-    const ws = new WebSocket(wsUrl);
-    portalWs = ws;
-
-    ws.onopen = () => {
-      sendWsPacket('sync:request');
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const packet = JSON.parse(String(event.data)) as {
-          type?: string;
-          sync?: Partial<PortalStoreState>;
-        };
-        if (packet.type === 'sync' && packet.sync) {
-          applyServerSyncPayload(packet.sync);
-        }
-      } catch {
-        // ignore non-JSON frames
-      }
-    };
-
-    ws.onclose = () => {
-      if (portalWs === ws) portalWs = null;
-      if (wsReconnectTimer === null) {
-        wsReconnectTimer = window.setTimeout(() => {
-          wsReconnectTimer = null;
-          connectPortalWebSocket();
-        }, 2500);
-      }
-    };
-
-    ws.onerror = () => {
-      // onclose handles reconnect
-    };
-  } catch {
-    // SSE and HTTP polling remain active as fallbacks
-  }
-}
-
-function ensureSyncPoller(): void {
-  if (syncPollerStarted || typeof window === 'undefined') return;
-  syncPollerStarted = true;
-  void syncPortalNow();
-  connectPortalWebSocket();
-
-  if (typeof EventSource !== 'undefined') {
-    try {
-      const es = new EventSource('/api/portal/stream');
-      es.addEventListener('sync', () => {
-        void syncPortalNow();
-      });
-      es.onmessage = () => {
-        void syncPortalNow();
-      };
-    } catch {
-      // Ignore if SSE unavailable; fallback poller below still handles sync
-    }
-  }
-
-  window.setInterval(() => {
-    if (document.visibilityState === 'visible') {
-      void syncPortalNow();
-      connectPortalWebSocket();
-    }
-  }, 2500);
-
-  window.addEventListener('focus', () => {
-    void syncPortalNow();
-    connectPortalWebSocket();
-  });
-}
-
-function subscribeStore(cb: StoreListener): () => void {
-  ensureSyncPoller();
-  listeners.add(cb);
-  const handleStorage = (e: StorageEvent) => {
-    if (e.key === PORTAL_STORAGE_KEY) cb();
-  };
-  window.addEventListener('storage', handleStorage);
-  return () => {
-    listeners.delete(cb);
-    window.removeEventListener('storage', handleStorage);
-  };
-}
-
-function makeUidFromEmail(email: string): string {
-  const slug = email
+function sanitizeId(raw: string | undefined | null, prefix: string): string {
+  const cleaned = (raw ?? '')
     .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '_')
-    .replace(/_+/g, '_')
-    .slice(0, 48);
-  return `usr_${slug || Date.now()}`;
+    .replace(/[^a-zA-Z0-9_\-]/g, '_')
+    .slice(0, 120);
+  if (cleaned.length >= 1) return cleaned;
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function buildStarterProfile(user: PortalUser, streak?: StudentStreakData): UserProfileDoc {
+function todayDateKey(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function normalizeDateKey(raw?: string): string {
+  const trimmed = (raw ?? '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed.slice(0, 20);
+  return todayDateKey();
+}
+
+function toPortalUser(fbUser: FirebaseUser | null): PortalUser | null {
+  if (!fbUser || !fbUser.email) return null;
   return {
-    uid: user.uid,
-    email: user.email.toLowerCase(),
-    displayName: user.displayName,
-    photoURL: user.photoURL,
-    currentStreak: streak?.currentStreak ?? 0,
-    bestStreak: streak?.bestStreak ?? 0,
-    totalPoints: streak?.totalPoints ?? 0,
-    lastActiveDate: streak?.lastActiveDate,
-    historyDates: streak?.historyDates ?? [],
+    uid: fbUser.uid,
+    email: normalizeEmail(fbUser.email),
+    displayName:
+      clampStr(fbUser.displayName, 120) ||
+      clampStr(fbUser.email.split('@')[0], 120) ||
+      'Student',
+    photoURL: fbUser.photoURL ? clampStr(fbUser.photoURL, 500) : undefined,
   };
 }
+
+function sanitizeEvidence(ev: TaskEvidence): TaskEvidence {
+  const clean: TaskEvidence = {
+    id: sanitizeId(ev.id, 'evid'),
+    photoUrl: clampStr(ev.photoUrl, 450000),
+    completedAt: clampStr(ev.completedAt || new Date().toISOString(), 64) || new Date().toISOString(),
+    completedTimeFormatted: clampStr(ev.completedTimeFormatted || 'Just now', 100) || 'Just now',
+    pointsEarned: clampInt(ev.pointsEarned, 0, 100, 5),
+  };
+  const notes = clampStr(ev.notes, 1000);
+  if (notes) clean.notes = notes;
+  const studentName = clampStr(ev.studentName, 120);
+  if (studentName) clean.studentName = studentName;
+  if (typeof ev.teacherVerified === 'boolean') clean.teacherVerified = ev.teacherVerified;
+  const teacherFeedback = clampStr(ev.teacherFeedback, 1000);
+  if (teacherFeedback) clean.teacherFeedback = teacherFeedback;
+  return clean;
+}
+
+function sanitizeEventFields(
+  event: CalendarEvent,
+  ownerUid: string,
+  teacherEmail?: string
+): Record<string, unknown> {
+  const cat = VALID_CATEGORIES.includes(event.category) ? event.category : 'deep_work';
+  const prio = VALID_PRIORITIES.includes(event.priority) ? event.priority : 'medium';
+
+  const payload: Record<string, unknown> = {
+    title: clampStr(event.title, 200) || 'Untitled Block',
+    category: cat,
+    date: normalizeDateKey(event.date),
+    startTime: clampStr(event.startTime, 10) || '09:00',
+    endTime: clampStr(event.endTime, 10) || '10:00',
+    isCompleted: Boolean(event.isCompleted),
+    priority: prio,
+  };
+
+  const tEmail = normalizeEmail(teacherEmail ?? teacherEmailCache.get(ownerUid) ?? '');
+  if (tEmail) payload.teacherEmail = tEmail;
+
+  const subject = clampStr(event.subject, 80);
+  if (subject) payload.subject = subject;
+  const desc = clampStr(event.description, 2000);
+  if (desc) payload.description = desc;
+  const loc = clampStr(event.location, 200);
+  if (loc) payload.location = loc;
+  const meetingUrl = clampStr(event.meetingUrl, 500);
+  if (meetingUrl) payload.meetingUrl = meetingUrl;
+  const focusNotes = clampStr(event.focusNotes, 2000);
+  if (focusNotes) payload.focusNotes = focusNotes;
+  if (event.recurrence && ['none', 'daily', 'weekdays', 'weekly'].includes(event.recurrence)) {
+    payload.recurrence = event.recurrence;
+  }
+  const sourceTaskId = clampStr(event.sourceTaskId, 128);
+  if (sourceTaskId) payload.sourceTaskId = sourceTaskId;
+  if (event.pointsValue !== undefined) {
+    payload.pointsValue = clampInt(event.pointsValue, 0, 100, 5);
+  }
+  if (event.order !== undefined) {
+    payload.order = clampInt(event.order, 0, 100000, 0);
+  }
+  if (Array.isArray(event.subtasks)) {
+    payload.subtasks = event.subtasks.slice(0, 30).map((st: Subtask) => ({
+      id: sanitizeId(st.id, 'sub'),
+      text: clampStr(st.text, 200) || 'Subtask',
+      completed: Boolean(st.completed),
+    }));
+  }
+  if (Array.isArray(event.reminders)) {
+    payload.reminders = event.reminders.slice(0, 10).map((rem: ReminderSetting) => ({
+      id: sanitizeId(rem.id, 'rem'),
+      minutesBefore: clampInt(rem.minutesBefore, 0, 10080, 15),
+      ...(rem.label ? { label: clampStr(rem.label, 80) } : {}),
+    }));
+  }
+  if (event.evidence && event.evidence.photoUrl) {
+    payload.evidence = sanitizeEvidence(event.evidence);
+  }
+
+  return payload;
+}
+
+function sanitizeTaskFields(
+  task: UnscheduledTask,
+  ownerUid: string,
+  teacherEmail?: string
+): Record<string, unknown> {
+  const cat = VALID_CATEGORIES.includes(task.category) ? task.category : 'deep_work';
+  const prio = VALID_PRIORITIES.includes(task.priority) ? task.priority : 'medium';
+
+  const payload: Record<string, unknown> = {
+    title: clampStr(task.title, 200) || 'Untitled Task',
+    category: cat,
+    estimatedMinutes: clampInt(task.estimatedMinutes, 1, 1440, 30),
+    priority: prio,
+    completed: Boolean(task.completed),
+  };
+
+  const tEmail = normalizeEmail(teacherEmail ?? teacherEmailCache.get(ownerUid) ?? '');
+  if (tEmail) payload.teacherEmail = tEmail;
+
+  const subject = clampStr(task.subject, 80);
+  if (subject) payload.subject = subject;
+  const dueDate = clampStr(task.dueDate, 20);
+  if (dueDate) payload.dueDate = dueDate;
+  const dueTime = clampStr(task.dueTime, 10);
+  if (dueTime) payload.dueTime = dueTime;
+  const desc = clampStr(task.description, 2000);
+  if (desc) payload.description = desc;
+  if (task.reminderMinutesBefore !== undefined) {
+    payload.reminderMinutesBefore = clampInt(task.reminderMinutesBefore, 0, 10080, 15);
+  }
+  const reminderTime = clampStr(task.reminderTime, 64);
+  if (reminderTime) payload.reminderTime = reminderTime;
+  if (task.pointsValue !== undefined) {
+    payload.pointsValue = clampInt(task.pointsValue, 0, 100, 5);
+  }
+  if (task.order !== undefined) {
+    payload.order = clampInt(task.order, 0, 100000, 0);
+  }
+  if (task.evidence && task.evidence.photoUrl) {
+    payload.evidence = sanitizeEvidence(task.evidence);
+  }
+
+  return payload;
+}
+
+async function resolveOwnerTeacherEmail(ownerUid: string): Promise<string> {
+  if (teacherEmailCache.has(ownerUid)) {
+    return teacherEmailCache.get(ownerUid) || '';
+  }
+  try {
+    const snap = await getDoc(doc(db, 'users', ownerUid));
+    if (snap.exists()) {
+      const tEmail = normalizeEmail(snap.data()?.teacherEmail as string | undefined);
+      teacherEmailCache.set(ownerUid, tEmail);
+      return tEmail;
+    }
+  } catch {
+    // non-fatal cache lookup
+  }
+  return '';
+}
+
+function docToUserProfile(raw: Record<string, unknown>, uid: string): UserProfileDoc {
+  const email = normalizeEmail(raw.email as string);
+  const tEmail = normalizeEmail(raw.teacherEmail as string);
+  if (tEmail || raw.teacherEmail === '') {
+    teacherEmailCache.set(uid, tEmail);
+  }
+  return {
+    uid: (raw.uid as string) || uid,
+    email,
+    displayName: clampStr(raw.displayName as string, 120) || email.split('@')[0] || 'Student',
+    photoURL: typeof raw.photoURL === 'string' && raw.photoURL ? raw.photoURL : undefined,
+    role: raw.role === 'teacher' || raw.role === 'student' ? raw.role : undefined,
+    teacherEmail: tEmail || undefined,
+    currentStreak: clampInt(raw.currentStreak, 0, 10000, 0),
+    bestStreak: clampInt(raw.bestStreak, 0, 10000, 0),
+    totalPoints: clampInt(raw.totalPoints, 0, 10000000, 0),
+    lastActiveDate: typeof raw.lastActiveDate === 'string' ? raw.lastActiveDate : undefined,
+    historyDates: Array.isArray(raw.historyDates)
+      ? raw.historyDates.filter((d): d is string => typeof d === 'string').slice(0, 365)
+      : [],
+  };
+}
+
+function docToCalendarEvent(raw: Record<string, unknown>, id: string): CalendarEvent {
+  return {
+    id: (raw.id as string) || id,
+    title: clampStr(raw.title as string, 200) || 'Untitled Block',
+    subject: typeof raw.subject === 'string' ? raw.subject : undefined,
+    description: typeof raw.description === 'string' ? raw.description : undefined,
+    category: VALID_CATEGORIES.includes(raw.category as EventCategory)
+      ? (raw.category as EventCategory)
+      : 'deep_work',
+    date: normalizeDateKey(raw.date as string | undefined),
+    startTime: clampStr(raw.startTime as string, 10) || '09:00',
+    endTime: clampStr(raw.endTime as string, 10) || '10:00',
+    isCompleted: Boolean(raw.isCompleted),
+    priority: VALID_PRIORITIES.includes(raw.priority as Priority)
+      ? (raw.priority as Priority)
+      : 'medium',
+    location: typeof raw.location === 'string' ? raw.location : undefined,
+    meetingUrl: typeof raw.meetingUrl === 'string' ? raw.meetingUrl : undefined,
+    focusNotes: typeof raw.focusNotes === 'string' ? raw.focusNotes : undefined,
+    recurrence:
+      typeof raw.recurrence === 'string'
+        ? (raw.recurrence as CalendarEvent['recurrence'])
+        : undefined,
+    sourceTaskId: typeof raw.sourceTaskId === 'string' ? raw.sourceTaskId : undefined,
+    pointsValue: typeof raw.pointsValue === 'number' ? raw.pointsValue : undefined,
+    order: typeof raw.order === 'number' ? raw.order : undefined,
+    subtasks: Array.isArray(raw.subtasks) ? (raw.subtasks as Subtask[]) : undefined,
+    reminders: Array.isArray(raw.reminders) ? (raw.reminders as ReminderSetting[]) : undefined,
+    evidence:
+      raw.evidence && typeof raw.evidence === 'object'
+        ? (raw.evidence as TaskEvidence)
+        : undefined,
+  };
+}
+
+function docToUnscheduledTask(raw: Record<string, unknown>, id: string): UnscheduledTask {
+  return {
+    id: (raw.id as string) || id,
+    title: clampStr(raw.title as string, 200) || 'Untitled Task',
+    subject: typeof raw.subject === 'string' ? raw.subject : undefined,
+    category: VALID_CATEGORIES.includes(raw.category as EventCategory)
+      ? (raw.category as EventCategory)
+      : 'deep_work',
+    estimatedMinutes: clampInt(raw.estimatedMinutes, 1, 1440, 30),
+    priority: VALID_PRIORITIES.includes(raw.priority as Priority)
+      ? (raw.priority as Priority)
+      : 'medium',
+    completed: Boolean(raw.completed),
+    dueDate: typeof raw.dueDate === 'string' ? raw.dueDate : undefined,
+    dueTime: typeof raw.dueTime === 'string' ? raw.dueTime : undefined,
+    description: typeof raw.description === 'string' ? raw.description : undefined,
+    reminderMinutesBefore:
+      typeof raw.reminderMinutesBefore === 'number' ? raw.reminderMinutesBefore : undefined,
+    reminderTime: typeof raw.reminderTime === 'string' ? raw.reminderTime : undefined,
+    pointsValue: typeof raw.pointsValue === 'number' ? raw.pointsValue : undefined,
+    order: typeof raw.order === 'number' ? raw.order : undefined,
+    evidence:
+      raw.evidence && typeof raw.evidence === 'object'
+        ? (raw.evidence as TaskEvidence)
+        : undefined,
+  };
+}
+
+function docToFeedbackMessage(raw: Record<string, unknown>, id: string): FeedbackMessage {
+  const createdTs = raw.createdAt as { toMillis?: () => number } | undefined;
+  const fallbackCreatedMs =
+    typeof raw.createdAtMs === 'number'
+      ? raw.createdAtMs
+      : typeof createdTs?.toMillis === 'function'
+      ? createdTs.toMillis()
+      : Date.now();
+
+  return {
+    id: (raw.id as string) || id,
+    senderUid: clampStr(raw.senderUid as string, 128),
+    senderName: clampStr(raw.senderName as string, 120) || 'User',
+    senderEmail: normalizeEmail(raw.senderEmail as string),
+    senderPhotoUrl: typeof raw.senderPhotoUrl === 'string' ? raw.senderPhotoUrl : undefined,
+    recipientEmail: normalizeEmail(raw.recipientEmail as string),
+    category: ['feedback', 'idea', 'bug', 'praise'].includes(raw.category as string)
+      ? (raw.category as FeedbackCategory)
+      : 'feedback',
+    text: clampStr(raw.text as string, 1000),
+    replyText: typeof raw.replyText === 'string' ? raw.replyText : undefined,
+    replyByEmail: typeof raw.replyByEmail === 'string' ? raw.replyByEmail : undefined,
+    replyAtMs: typeof raw.replyAtMs === 'number' ? raw.replyAtMs : undefined,
+    replies: Array.isArray(raw.replies) ? (raw.replies as FeedbackReply[]) : [],
+    seenByCreator: typeof raw.seenByCreator === 'boolean' ? raw.seenByCreator : undefined,
+    seenBySender: typeof raw.seenBySender === 'boolean' ? raw.seenBySender : undefined,
+    createdAtMs: fallbackCreatedMs,
+  };
+}
+
+// --- Firebase Auth Helpers ---
 
 export function getCurrentPortalUser(): PortalUser | null {
-  const store = loadStore();
-  if (!store.currentUid) return null;
-  return store.accounts[store.currentUid]?.user ?? null;
+  return toPortalUser(auth.currentUser);
 }
 
-export function listSavedPortalAccounts(): PortalUser[] {
-  const store = loadStore();
-  return Object.values(store.accounts).map((acc) => acc.user);
-}
-
-function getAuthSignature(user: PortalUser | null): string | null {
-  if (!user) return null;
-  return `${user.uid}|${user.email}|${user.displayName}|${user.photoURL ?? ''}`;
+export async function signInWithGoogle(): Promise<PortalUser> {
+  try {
+    const credential = await signInWithPopup(auth, googleProvider);
+    const portalUser = toPortalUser(credential.user);
+    if (!portalUser) {
+      throw new Error('Could not read your Google email address. Please try again.');
+    }
+    return portalUser;
+  } catch (err) {
+    const code = (err as { code?: string })?.code;
+    if (code === 'auth/popup-closed-by-user') {
+      throw new Error('Google sign-in popup was closed before completing sign-in.');
+    }
+    if (code === 'auth/popup-blocked') {
+      throw new Error('Sign-in popup was blocked by your browser. Please allow popups and retry.');
+    }
+    if (code === 'auth/cancelled-popup-request') {
+      throw new Error('Another sign-in request was started. Please complete the active window.');
+    }
+    throw err instanceof Error ? err : new Error('Google sign-in failed. Please try again.');
+  }
 }
 
 export function subscribeAuthState(callback: (user: PortalUser | null) => void): () => void {
-  ensureSyncPoller();
-  const initialUser = getCurrentPortalUser();
-  let lastSig = getAuthSignature(initialUser);
-  callback(initialUser);
-  return subscribeStore(() => {
-    const user = getCurrentPortalUser();
-    const nextSig = getAuthSignature(user);
-    if (nextSig !== lastSig) {
-      lastSig = nextSig;
-      callback(user);
-    }
+  return onAuthStateChanged(auth, (fbUser) => {
+    callback(toPortalUser(fbUser));
   });
-}
-
-export async function registerAccountFreely(
-  displayName: string,
-  email: string,
-  password: string
-): Promise<PortalUser> {
-  const cleanEmail = email.trim().toLowerCase();
-  if (!cleanEmail || !cleanEmail.includes('@')) {
-    throw new Error('Please enter a valid email address.');
-  }
-  if (password.length < 4) {
-    throw new Error('Please create a safety password of at least 4 characters.');
-  }
-
-  const serverRes = await postJson<{ user: PortalUser; sync?: Partial<PortalStoreState> }>(
-    '/api/portal/register',
-    { displayName, email: cleanEmail, password }
-  );
-
-  if (serverRes?.user) {
-    const store = loadStore();
-    store.currentUid = serverRes.user.uid;
-    store.accounts[serverRes.user.uid] = { user: serverRes.user, password };
-    if (!store.profiles[serverRes.user.uid]) {
-      store.profiles[serverRes.user.uid] = buildStarterProfile(serverRes.user);
-    }
-    saveStore(store);
-    if (serverRes.sync) applyServerSyncPayload(serverRes.sync);
-    return serverRes.user;
-  }
-
-  const store = loadStore();
-  const existing = Object.values(store.accounts).find(
-    (a) => a.user.email.toLowerCase() === cleanEmail
-  );
-  if (existing) {
-    throw new Error('An account with this email already exists. Switch to Sign In to continue!');
-  }
-
-  const cleanName = displayName.trim().slice(0, 120) || cleanEmail.split('@')[0] || 'Student';
-  const uid = makeUidFromEmail(cleanEmail);
-  const newUser: PortalUser = {
-    uid,
-    email: cleanEmail,
-    displayName: cleanName,
-  };
-
-  store.accounts[uid] = { user: newUser, password };
-  if (!store.profiles[uid]) {
-    store.profiles[uid] = buildStarterProfile(newUser);
-  }
-  store.currentUid = uid;
-  saveStore(store);
-  return newUser;
-}
-
-export async function signInFreely(
-  email: string,
-  password: string,
-  displayNameIfNew?: string
-): Promise<PortalUser> {
-  const cleanEmail = email.trim().toLowerCase();
-  if (!cleanEmail || !cleanEmail.includes('@')) {
-    throw new Error('Please enter a valid email address.');
-  }
-  if (!password) {
-    throw new Error('Please enter your password.');
-  }
-
-  const serverRes = await postJson<{ user: PortalUser; sync?: Partial<PortalStoreState> }>(
-    '/api/portal/login',
-    { email: cleanEmail, password, displayNameIfNew }
-  );
-
-  if (serverRes?.user) {
-    const store = loadStore();
-    store.currentUid = serverRes.user.uid;
-    store.accounts[serverRes.user.uid] = { user: serverRes.user, password };
-    if (!store.profiles[serverRes.user.uid]) {
-      store.profiles[serverRes.user.uid] = buildStarterProfile(serverRes.user);
-    }
-    saveStore(store);
-    if (serverRes.sync) applyServerSyncPayload(serverRes.sync);
-    return serverRes.user;
-  }
-
-  const store = loadStore();
-  const existing = Object.values(store.accounts).find(
-    (a) => a.user.email.toLowerCase() === cleanEmail
-  );
-
-  if (existing) {
-    if (existing.password && existing.password !== password) {
-      throw new Error('Incorrect password. Please try again or reset your password.');
-    }
-    store.currentUid = existing.user.uid;
-    saveStore(store);
-    return existing.user;
-  }
-
-  if (password.length < 4) {
-    throw new Error('Please use a password of at least 4 characters to protect your new account.');
-  }
-  const cleanName =
-    (displayNameIfNew || '').trim().slice(0, 120) || cleanEmail.split('@')[0] || 'Student';
-  const uid = makeUidFromEmail(cleanEmail);
-  const newUser: PortalUser = {
-    uid,
-    email: cleanEmail,
-    displayName: cleanName,
-  };
-  store.accounts[uid] = { user: newUser, password };
-  if (!store.profiles[uid]) {
-    store.profiles[uid] = buildStarterProfile(newUser);
-  }
-  store.currentUid = uid;
-  saveStore(store);
-  return newUser;
-}
-
-export async function quickSignInWithSavedAccount(uid: string, password?: string): Promise<PortalUser> {
-  const store = loadStore();
-  const acc = store.accounts[uid];
-  if (!acc) throw new Error('Account not found.');
-  if (acc.password && password !== undefined && acc.password !== password) {
-    throw new Error('Incorrect password for this account.');
-  }
-  store.currentUid = uid;
-  saveStore(store);
-  return acc.user;
-}
-
-export async function resetLocalAccountPassword(email: string, newPassword: string): Promise<void> {
-  const cleanEmail = email.trim().toLowerCase();
-  if (newPassword.length < 4) {
-    throw new Error('New password must be at least 4 characters.');
-  }
-
-  const serverRes = await postJson<{ ok: boolean; sync?: Partial<PortalStoreState> }>(
-    '/api/portal/reset-password',
-    { email: cleanEmail, newPassword }
-  );
-
-  const store = loadStore();
-  const entry = Object.values(store.accounts).find(
-    (a) => a.user.email.toLowerCase() === cleanEmail
-  );
-  if (!entry && !serverRes?.ok) {
-    throw new Error('No saved account found for that email. Create a new account freely!');
-  }
-  if (entry) {
-    store.accounts[entry.user.uid] = { ...entry, password: newPassword };
-    saveStore(store);
-  }
-  if (serverRes?.sync) applyServerSyncPayload(serverRes.sync);
-}
-
-export function hasAccountPassword(user: PortalUser | null): boolean {
-  if (!user) return false;
-  const store = loadStore();
-  return Boolean(store.accounts[user.uid]?.password);
-}
-
-export async function setOrUpdateAccountPassword(
-  newPassword: string,
-  currentPassword?: string
-): Promise<void> {
-  const store = loadStore();
-  if (!store.currentUid || !store.accounts[store.currentUid]) {
-    throw new Error('You must be signed in to update your password.');
-  }
-  if (newPassword.length < 4) {
-    throw new Error('Password must be at least 4 characters.');
-  }
-  const acc = store.accounts[store.currentUid];
-  if (acc.password && currentPassword !== undefined && acc.password !== currentPassword) {
-    throw new Error('Current password is incorrect.');
-  }
-
-  await postJson('/api/portal/password', {
-    uid: store.currentUid,
-    newPassword,
-    currentPassword,
-  });
-
-  store.accounts[store.currentUid] = { ...acc, password: newPassword };
-  saveStore(store);
 }
 
 export async function signOutUser(): Promise<void> {
-  const store = loadStore();
-  store.currentUid = null;
-  saveStore(store);
+  await signOut(auth);
 }
 
+// Cloud Firestore sync happens live via onSnapshot; keep manual trigger resolved cleanly
+export async function syncPortalNow(): Promise<void> {
+  // Real-time Firestore onSnapshot keeps all views synced automatically.
+}
+
+// --- User Profile & Role Operations ---
+
 export async function ensureUserProfile(user: PortalUser): Promise<void> {
-  const store = loadStore();
-  if (!store.profiles[user.uid]) {
-    const starter = buildStarterProfile(user);
-    store.profiles[user.uid] = starter;
-    saveStore(store);
-    await postJson('/api/portal/profile', starter);
+  if (!auth.currentUser) return;
+  const path = `users/${user.uid}`;
+  const ref = doc(db, 'users', user.uid);
+  try {
+    const snap = await getDoc(ref);
+    if (!snap.exists()) {
+      const cleanEmail = normalizeEmail(auth.currentUser.email || user.email);
+      const cleanName =
+        clampStr(user.displayName || auth.currentUser.displayName, 120) ||
+        clampStr(cleanEmail.split('@')[0], 120) ||
+        'Student';
+      const starter: Record<string, unknown> = {
+        uid: user.uid,
+        email: cleanEmail,
+        displayName: cleanName,
+        currentStreak: 0,
+        bestStreak: 0,
+        totalPoints: 0,
+        historyDates: [],
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+      if (user.photoURL) {
+        starter.photoURL = clampStr(user.photoURL, 500);
+      }
+      await setDoc(ref, starter);
+    } else {
+      const tEmail = normalizeEmail(snap.data()?.teacherEmail as string | undefined);
+      teacherEmailCache.set(user.uid, tEmail);
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
   }
-  void syncPortalNow();
 }
 
 export async function syncUserProfile(
@@ -634,64 +459,83 @@ export async function syncUserProfile(
   teacherEmail?: string,
   role?: UserRole
 ): Promise<void> {
-  const store = loadStore();
-  const existing = store.profiles[user.uid];
-  const cleanName =
-    (
-      displayNameOverride ||
-      existing?.displayName ||
-      user.displayName ||
-      user.email.split('@')[0] ||
-      'Student'
-    )
-      .trim()
-      .slice(0, 120) || 'Student';
+  if (!auth.currentUser) return;
+  const path = `users/${user.uid}`;
+  const ref = doc(db, 'users', user.uid);
 
-  const nextProfile: UserProfileDoc = {
-    uid: user.uid,
-    email: user.email.toLowerCase(),
-    displayName: cleanName,
-    photoURL: user.photoURL ?? existing?.photoURL,
-    role: role !== undefined ? role : existing?.role,
-    teacherEmail:
-      teacherEmail !== undefined ? teacherEmail.trim().toLowerCase() : existing?.teacherEmail,
-    currentStreak: Math.max(0, Math.round(streakData.currentStreak ?? existing?.currentStreak ?? 0)),
-    bestStreak: Math.max(0, Math.round(streakData.bestStreak ?? existing?.bestStreak ?? 0)),
-    totalPoints: Math.max(0, Math.round(streakData.totalPoints ?? existing?.totalPoints ?? 0)),
-    lastActiveDate: streakData.lastActiveDate ?? existing?.lastActiveDate,
-    historyDates: Array.isArray(streakData.historyDates)
-      ? streakData.historyDates
-      : existing?.historyDates ?? [],
-  };
+  const cleanHistory = Array.isArray(streakData.historyDates)
+    ? streakData.historyDates
+        .filter((d): d is string => typeof d === 'string' && d.trim().length > 0)
+        .map((d) => clampStr(d, 20))
+        .slice(-365)
+    : [];
 
-  const prevTeachers = new Set(parseEmailList(existing?.teacherEmail));
-  const newlyAddedTeachers = parseEmailList(nextProfile.teacherEmail).filter(
-    (t) => !prevTeachers.has(t) && t !== nextProfile.email
-  );
-  if (newlyAddedTeachers.length > 0) {
-    const newNotifs: TeacherLinkNotification[] = newlyAddedTeachers.map((tEmail) => ({
-      id: `tlink_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      teacherEmail: tEmail,
-      studentUid: user.uid,
-      studentName: cleanName,
-      studentEmail: nextProfile.email,
-      createdAtMs: Date.now(),
-      seenByUids: [],
-    }));
-    store.teacherNotifications = [...store.teacherNotifications, ...newNotifs].slice(-300);
+  try {
+    const snap = await getDoc(ref);
+    const existingData = snap.exists() ? snap.data() : undefined;
+    const cleanEmail = normalizeEmail(auth.currentUser.email || user.email);
+    const cleanName =
+      clampStr(
+        displayNameOverride ||
+          (existingData?.displayName as string | undefined) ||
+          user.displayName ||
+          cleanEmail.split('@')[0],
+        120
+      ) || 'Student';
+
+    const updatePayload: Record<string, unknown> = {
+      displayName: cleanName,
+      currentStreak: clampInt(streakData.currentStreak, 0, 10000, 0),
+      bestStreak: clampInt(streakData.bestStreak, 0, 10000, 0),
+      totalPoints: clampInt(streakData.totalPoints, 0, 10000000, 0),
+      historyDates: cleanHistory,
+      updatedAt: serverTimestamp(),
+    };
+
+    const photoURL = user.photoURL
+      ? clampStr(user.photoURL, 500)
+      : typeof existingData?.photoURL === 'string'
+      ? clampStr(existingData.photoURL, 500)
+      : '';
+    if (photoURL) {
+      updatePayload.photoURL = photoURL;
+    }
+
+    if (role !== undefined) {
+      updatePayload.role = role;
+    } else if (existingData?.role === 'student' || existingData?.role === 'teacher') {
+      updatePayload.role = existingData.role;
+    }
+
+    if (teacherEmail !== undefined) {
+      const normalizedTeacher = normalizeEmail(teacherEmail);
+      updatePayload.teacherEmail = normalizedTeacher;
+      teacherEmailCache.set(user.uid, normalizedTeacher);
+    } else if (typeof existingData?.teacherEmail === 'string') {
+      updatePayload.teacherEmail = normalizeEmail(existingData.teacherEmail);
+    }
+
+    const lastActive = clampStr(
+      streakData.lastActiveDate ?? (existingData?.lastActiveDate as string | undefined),
+      20
+    );
+    if (lastActive) {
+      updatePayload.lastActiveDate = lastActive;
+    }
+
+    if (!snap.exists()) {
+      await setDoc(ref, {
+        uid: user.uid,
+        email: cleanEmail,
+        ...updatePayload,
+        createdAt: serverTimestamp(),
+      });
+    } else {
+      await updateDoc(ref, updatePayload);
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
   }
-
-  store.profiles[user.uid] = nextProfile;
-  if (store.accounts[user.uid]) {
-    store.accounts[user.uid].user.displayName = cleanName;
-  }
-  saveStore(store);
-
-  const serverRes = await postJson<{ sync?: Partial<PortalStoreState> }>(
-    '/api/portal/profile',
-    nextProfile
-  );
-  if (serverRes?.sync) applyServerSyncPayload(serverRes.sync);
 }
 
 export async function updateUserRole(
@@ -711,109 +555,70 @@ export async function updateAssignedTeacherEmail(
   streakData: StudentStreakData,
   studentName: string
 ): Promise<void> {
-  const normalized = teacherEmail.trim().toLowerCase();
+  const normalized = normalizeEmail(teacherEmail);
   if (normalized && !normalized.includes('@')) {
     throw new Error('Please enter a valid teacher Gmail address.');
   }
-
-  const store = loadStore();
-  const existing = store.profiles[user.uid];
-  const cleanName =
-    (studentName || existing?.displayName || user.displayName || user.email.split('@')[0] || 'Student')
-      .trim()
-      .slice(0, 120) || 'Student';
-  const cleanStudentEmail = user.email.toLowerCase();
-
-  const nextProfile: UserProfileDoc = {
-    uid: user.uid,
-    email: cleanStudentEmail,
-    displayName: cleanName,
-    photoURL: user.photoURL ?? existing?.photoURL,
-    role: existing?.role ?? 'student',
-    teacherEmail: normalized,
-    currentStreak: Math.max(0, Math.round(streakData.currentStreak ?? existing?.currentStreak ?? 0)),
-    bestStreak: Math.max(0, Math.round(streakData.bestStreak ?? existing?.bestStreak ?? 0)),
-    totalPoints: Math.max(0, Math.round(streakData.totalPoints ?? existing?.totalPoints ?? 0)),
-    lastActiveDate: streakData.lastActiveDate ?? existing?.lastActiveDate,
-    historyDates: Array.isArray(streakData.historyDates)
-      ? streakData.historyDates
-      : existing?.historyDates ?? [],
-  };
-
-  const parsedTeachers = parseEmailList(normalized).filter((t) => t !== cleanStudentEmail);
-  const newNotifs: TeacherLinkNotification[] = parsedTeachers.map((tEmail) => ({
-    id: `tlink_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-    teacherEmail: tEmail,
-    studentUid: user.uid,
-    studentName: cleanName,
-    studentEmail: cleanStudentEmail,
-    createdAtMs: Date.now(),
-    seenByUids: [],
-  }));
-
-  store.profiles[user.uid] = nextProfile;
-  if (newNotifs.length > 0) {
-    store.teacherNotifications = [...store.teacherNotifications, ...newNotifs].slice(-300);
+  const cleanStudentEmail = normalizeEmail(auth.currentUser?.email || user.email);
+  if (normalized && normalized === cleanStudentEmail) {
+    throw new Error('Please enter your teacher’s Gmail rather than your own email.');
   }
-  saveStore(store);
 
-  const serverRes = await postJson<{ sync?: Partial<PortalStoreState> }>(
-    '/api/portal/link-teacher',
-    {
-      studentProfile: nextProfile,
-      teacherEmail: normalized,
-      notification: newNotifs[0],
-      notifications: newNotifs,
+  // 1. Persist teacherEmail on student profile first (guarantees /users/{uid} exists)
+  await syncUserProfile(user, streakData, studentName, normalized);
+  teacherEmailCache.set(user.uid, normalized);
+
+  // 2. Propagate teacherEmail onto all existing student events & tasks in batches
+  try {
+    const [evSnap, taskSnap] = await Promise.all([
+      getDocs(query(collection(db, 'users', user.uid, 'events'), where('ownerUid', '==', user.uid))),
+      getDocs(query(collection(db, 'users', user.uid, 'tasks'), where('ownerUid', '==', user.uid))),
+    ]);
+
+    const refs = [...evSnap.docs.map((d) => d.ref), ...taskSnap.docs.map((d) => d.ref)];
+    for (let i = 0; i < refs.length; i += 400) {
+      const batch = writeBatch(db);
+      refs.slice(i, i + 400).forEach((ref) => {
+        batch.update(ref, { teacherEmail: normalized, updatedAt: serverTimestamp() });
+      });
+      await batch.commit();
     }
-  );
-  if (serverRes?.sync) applyServerSyncPayload(serverRes.sync);
-}
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}/events`);
+  }
 
-export function subscribeTeacherLinkNotifications(
-  userEmail: string | undefined,
-  currentUid: string | undefined,
-  onNewLinks: (notifications: TeacherLinkNotification[]) => void
-): () => void {
-  const cleanEmail = (userEmail || '').trim().toLowerCase();
-  const emit = () => {
-    if (!cleanEmail || !currentUid) return;
-    const store = loadStore();
-    const pending = store.teacherNotifications
-      .filter(
-        (n) =>
-          n.teacherEmail.trim().toLowerCase() === cleanEmail &&
-          n.studentUid !== currentUid &&
-          !(n.seenByUids ?? []).includes(currentUid)
-      )
-      .sort((a, b) => (a.createdAtMs || 0) - (b.createdAtMs || 0));
-    if (pending.length > 0) {
-      onNewLinks(pending);
+  // 3. Create instant Teacher Link Notification document if non-empty
+  if (normalized) {
+    const notifId = sanitizeId(
+      `tlink_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      'tlink'
+    );
+    const notifPath = `teacher_notifications/${notifId}`;
+    const cleanName = clampStr(studentName || user.displayName, 120) || 'Student';
+    try {
+      await setDoc(doc(db, 'teacher_notifications', notifId), {
+        id: notifId,
+        teacherEmail: normalized,
+        studentUid: user.uid,
+        studentName: cleanName,
+        studentEmail: cleanStudentEmail,
+        createdAtMs: Date.now(),
+        seenByTeacher: false,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, notifPath);
     }
-  };
-  emit();
-  return subscribeStore(emit);
-}
-
-export async function markTeacherNotificationsSeen(ids: string[], uid: string): Promise<void> {
-  if (!uid || ids.length === 0) return;
-  const idSet = new Set(ids);
-  const store = loadStore();
-  store.teacherNotifications = store.teacherNotifications.map((n) => {
-    if (!idSet.has(n.id)) return n;
-    const seen = new Set(n.seenByUids ?? []);
-    seen.add(uid);
-    return { ...n, seenByUids: Array.from(seen) };
-  });
-  saveStore(store);
-  await postJson('/api/portal/teacher-notifications/seen', { ids, uid });
+  }
 }
 
 export async function linkStudentEmailByTeacher(
   teacherEmail: string,
   studentEmail: string
 ): Promise<void> {
-  const cleanTeacher = teacherEmail.trim().toLowerCase();
-  const cleanStudent = studentEmail.trim().toLowerCase();
+  const cleanTeacher = normalizeEmail(teacherEmail);
+  const cleanStudent = normalizeEmail(studentEmail);
   if (!cleanStudent || !cleanStudent.includes('@')) {
     throw new Error('Please enter a valid student Gmail address.');
   }
@@ -821,49 +626,56 @@ export async function linkStudentEmailByTeacher(
     throw new Error('Please enter a student email different from your own.');
   }
 
-  const serverRes = await postJson<{ sync?: Partial<PortalStoreState> }>(
-    '/api/portal/link-student',
-    { teacherEmail: cleanTeacher, studentEmail: cleanStudent }
-  );
+  const viewerIsAdmin =
+    normalizeEmail(auth.currentUser?.email) === CREATOR_ADMIN_EMAIL.toLowerCase();
 
-  if (serverRes?.sync) {
-    applyServerSyncPayload(serverRes.sync);
-    return;
+  if (!viewerIsAdmin) {
+    throw new Error(
+      `For student privacy, ask ${cleanStudent} to sign in with Google and enter your Gmail (${cleanTeacher}) in Settings -> Link Teacher. They will appear automatically right away!`
+    );
   }
 
-  const store = loadStore();
-  const existing = Object.values(store.profiles).find(
-    (p) => p.email.trim().toLowerCase() === cleanStudent
-  );
-  if (existing) {
-    store.profiles[existing.uid] = { ...existing, teacherEmail: cleanTeacher };
-  } else {
-    const uid = makeUidFromEmail(cleanStudent);
-    store.profiles[uid] = {
-      uid,
-      email: cleanStudent,
-      displayName: cleanStudent.split('@')[0] || 'Student',
-      role: 'student',
+  try {
+    const snap = await getDocs(
+      query(collection(db, 'users'), where('email', '==', cleanStudent))
+    );
+    if (snap.empty) {
+      throw new Error(
+        `No profile found yet for ${cleanStudent}. Ask them to sign in once with Google first!`
+      );
+    }
+    const targetDoc = snap.docs[0];
+    await updateDoc(targetDoc.ref, {
       teacherEmail: cleanTeacher,
-      currentStreak: 0,
-      bestStreak: 0,
-      totalPoints: 0,
-      historyDates: [],
-    };
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    if (error instanceof Error && !error.message.includes('Missing or insufficient permissions')) {
+      throw error;
+    }
+    handleFirestoreError(error, OperationType.UPDATE, 'users');
   }
-  saveStore(store);
 }
 
 export function subscribeUserProfile(
   uid: string,
   onChange: (profile: UserProfileDoc | null) => void
 ): () => void {
-  const emit = () => {
-    const store = loadStore();
-    onChange(store.profiles[uid] ?? null);
-  };
-  emit();
-  return subscribeStore(emit);
+  if (!auth.currentUser) return () => {};
+  const path = `users/${uid}`;
+  return onSnapshot(
+    doc(db, 'users', uid),
+    (snap) => {
+      if (!snap.exists()) {
+        onChange(null);
+        return;
+      }
+      onChange(docToUserProfile(snap.data() as Record<string, unknown>, snap.id));
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.GET, path);
+    }
+  );
 }
 
 export function subscribeMonitoredStudents(
@@ -871,66 +683,159 @@ export function subscribeMonitoredStudents(
   isCreatorAdmin: boolean,
   onChange: (students: UserProfileDoc[]) => void
 ): () => void {
-  const emit = () => {
-    const store = loadStore();
-    const myEmail = currentUser.email.trim().toLowerCase();
-    const students = Object.values(store.profiles)
-      .filter((prof) => {
-        if (prof.uid === currentUser.uid) return false;
-        if (isCreatorAdmin) return true;
-        const linkedEmails = (prof.teacherEmail || '')
-          .toLowerCase()
-          .split(/[\s,;]+/)
-          .filter(Boolean);
-        return linkedEmails.includes(myEmail);
-      })
-      .sort((a, b) => (a.displayName || a.email).localeCompare(b.displayName || b.email));
-    onChange(students);
-  };
-  emit();
-  return subscribeStore(emit);
+  if (!auth.currentUser) return () => {};
+  const myEmail = normalizeEmail(currentUser.email);
+  const q = isCreatorAdmin
+    ? collection(db, 'users')
+    : query(collection(db, 'users'), where('teacherEmail', '==', myEmail));
+
+  return onSnapshot(
+    q,
+    (snap) => {
+      const students = snap.docs
+        .map((d) => docToUserProfile(d.data() as Record<string, unknown>, d.id))
+        .filter((prof) => prof.uid !== currentUser.uid)
+        .sort((a, b) => (a.displayName || a.email).localeCompare(b.displayName || b.email));
+      onChange(students);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'users');
+    }
+  );
 }
+
+// --- Teacher Link Notifications ---
+
+export function subscribeTeacherLinkNotifications(
+  userEmail: string | undefined,
+  currentUid: string | undefined,
+  onNewLinks: (notifications: TeacherLinkNotification[]) => void
+): () => void {
+  const cleanEmail = normalizeEmail(userEmail);
+  if (!auth.currentUser || !cleanEmail || !currentUid) return () => {};
+
+  const q = query(
+    collection(db, 'teacher_notifications'),
+    where('teacherEmail', '==', cleanEmail)
+  );
+
+  return onSnapshot(
+    q,
+    (snap) => {
+      const pending = snap.docs
+        .map((d) => {
+          const data = d.data() as Record<string, unknown>;
+          return {
+            id: (data.id as string) || d.id,
+            teacherEmail: normalizeEmail(data.teacherEmail as string),
+            studentUid: clampStr(data.studentUid as string, 128),
+            studentName: clampStr(data.studentName as string, 120) || 'Student',
+            studentEmail: normalizeEmail(data.studentEmail as string),
+            createdAtMs: typeof data.createdAtMs === 'number' ? data.createdAtMs : Date.now(),
+            seenByTeacher: Boolean(data.seenByTeacher),
+          } as TeacherLinkNotification;
+        })
+        .filter((n) => n.seenByTeacher !== true && n.studentUid !== currentUid)
+        .sort((a, b) => (a.createdAtMs || 0) - (b.createdAtMs || 0));
+
+      if (pending.length > 0) {
+        onNewLinks(pending);
+      }
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'teacher_notifications');
+    }
+  );
+}
+
+export async function markTeacherNotificationsSeen(ids: string[], uid: string): Promise<void> {
+  if (!auth.currentUser || !uid || ids.length === 0) return;
+  try {
+    const batch = writeBatch(db);
+    ids.forEach((rawId) => {
+      const cleanId = sanitizeId(rawId, 'tlink');
+      batch.update(doc(db, 'teacher_notifications', cleanId), {
+        seenByTeacher: true,
+        updatedAt: serverTimestamp(),
+      });
+    });
+    await batch.commit();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, 'teacher_notifications');
+  }
+}
+
+// --- Calendar Events ---
 
 export function subscribeEvents(
   targetUid: string | null,
   onChange: (events: CalendarEvent[]) => void
 ): () => void {
-  const emit = () => {
-    if (!targetUid) {
-      onChange([]);
-      return;
+  const fbUser = auth.currentUser;
+  if (!fbUser || !targetUid) {
+    onChange([]);
+    return () => {};
+  }
+
+  const myEmail = normalizeEmail(fbUser.email);
+  const isCreatorAdmin = myEmail === CREATOR_ADMIN_EMAIL.toLowerCase();
+  const baseCol = collection(db, 'users', targetUid, 'events');
+  const q = isCreatorAdmin
+    ? baseCol
+    : targetUid === fbUser.uid
+    ? query(baseCol, where('ownerUid', '==', fbUser.uid))
+    : query(baseCol, where('teacherEmail', '==', myEmail));
+
+  return onSnapshot(
+    q,
+    (snap) => {
+      onChange(
+        snap.docs.map((d) => docToCalendarEvent(d.data() as Record<string, unknown>, d.id))
+      );
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, `users/${targetUid}/events`);
     }
-    const store = loadStore();
-    onChange([...(store.eventsByUid[targetUid] ?? [])]);
-  };
-  emit();
-  return subscribeStore(emit);
+  );
 }
 
 export async function saveEvent(ownerUid: string, event: CalendarEvent): Promise<void> {
-  const store = loadStore();
-  const list = [...(store.eventsByUid[ownerUid] ?? [])];
-  const idx = list.findIndex((e) => e.id === event.id);
-  if (idx >= 0) {
-    list[idx] = { ...event };
-  } else {
-    list.push({ ...event });
+  if (!auth.currentUser) return;
+  const eventId = sanitizeId(event.id, 'evt');
+  const path = `users/${ownerUid}/events/${eventId}`;
+  const ref = doc(db, 'users', ownerUid, 'events', eventId);
+
+  try {
+    const tEmail = await resolveOwnerTeacherEmail(ownerUid);
+    const fields = sanitizeEventFields(event, ownerUid, tEmail);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) {
+      await setDoc(ref, {
+        id: eventId,
+        ownerUid,
+        ...fields,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      await updateDoc(ref, {
+        ...fields,
+        updatedAt: serverTimestamp(),
+      });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
   }
-  store.eventsByUid[ownerUid] = list;
-  saveStore(store);
-  await postJson('/api/portal/event', { ownerUid, event });
 }
 
 export async function deleteEvent(ownerUid: string, eventId: string): Promise<void> {
-  const store = loadStore();
-  store.eventsByUid[ownerUid] = (store.eventsByUid[ownerUid] ?? []).filter((e) => e.id !== eventId);
-  saveStore(store);
+  if (!auth.currentUser) return;
+  const cleanId = sanitizeId(eventId, 'evt');
+  const path = `users/${ownerUid}/events/${cleanId}`;
   try {
-    await fetch(`/api/portal/event/${encodeURIComponent(ownerUid)}/${encodeURIComponent(eventId)}`, {
-      method: 'DELETE',
-    });
-  } catch {
-    // offline fallback already updated local state
+    await deleteDoc(doc(db, 'users', ownerUid, 'events', cleanId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
   }
 }
 
@@ -939,57 +844,90 @@ export async function verifyEventEvidence(
   eventId: string,
   evidence: TaskEvidence
 ): Promise<void> {
-  const store = loadStore();
-  const list = [...(store.eventsByUid[studentUid] ?? [])];
-  const idx = list.findIndex((e) => e.id === eventId);
-  if (idx >= 0) {
-    list[idx] = { ...list[idx], evidence };
-    store.eventsByUid[studentUid] = list;
-    saveStore(store);
+  if (!auth.currentUser) return;
+  const cleanId = sanitizeId(eventId, 'evt');
+  const path = `users/${studentUid}/events/${cleanId}`;
+  try {
+    await updateDoc(doc(db, 'users', studentUid, 'events', cleanId), {
+      evidence: sanitizeEvidence(evidence),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
   }
-  await postJson('/api/portal/event/verify', { studentUid, eventId, evidence });
 }
+
+// --- Backlog Tasks ---
 
 export function subscribeTasks(
   targetUid: string | null,
   onChange: (tasks: UnscheduledTask[]) => void
 ): () => void {
-  const emit = () => {
-    if (!targetUid) {
-      onChange([]);
-      return;
+  const fbUser = auth.currentUser;
+  if (!fbUser || !targetUid) {
+    onChange([]);
+    return () => {};
+  }
+
+  const myEmail = normalizeEmail(fbUser.email);
+  const isCreatorAdmin = myEmail === CREATOR_ADMIN_EMAIL.toLowerCase();
+  const baseCol = collection(db, 'users', targetUid, 'tasks');
+  const q = isCreatorAdmin
+    ? baseCol
+    : targetUid === fbUser.uid
+    ? query(baseCol, where('ownerUid', '==', fbUser.uid))
+    : query(baseCol, where('teacherEmail', '==', myEmail));
+
+  return onSnapshot(
+    q,
+    (snap) => {
+      onChange(
+        snap.docs.map((d) => docToUnscheduledTask(d.data() as Record<string, unknown>, d.id))
+      );
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, `users/${targetUid}/tasks`);
     }
-    const store = loadStore();
-    onChange([...(store.tasksByUid[targetUid] ?? [])]);
-  };
-  emit();
-  return subscribeStore(emit);
+  );
 }
 
 export async function saveTask(ownerUid: string, task: UnscheduledTask): Promise<void> {
-  const store = loadStore();
-  const list = [...(store.tasksByUid[ownerUid] ?? [])];
-  const idx = list.findIndex((t) => t.id === task.id);
-  if (idx >= 0) {
-    list[idx] = { ...task };
-  } else {
-    list.push({ ...task });
+  if (!auth.currentUser) return;
+  const taskId = sanitizeId(task.id, 'task');
+  const path = `users/${ownerUid}/tasks/${taskId}`;
+  const ref = doc(db, 'users', ownerUid, 'tasks', taskId);
+
+  try {
+    const tEmail = await resolveOwnerTeacherEmail(ownerUid);
+    const fields = sanitizeTaskFields(task, ownerUid, tEmail);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) {
+      await setDoc(ref, {
+        id: taskId,
+        ownerUid,
+        ...fields,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      await updateDoc(ref, {
+        ...fields,
+        updatedAt: serverTimestamp(),
+      });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
   }
-  store.tasksByUid[ownerUid] = list;
-  saveStore(store);
-  await postJson('/api/portal/task', { ownerUid, task });
 }
 
 export async function deleteTask(ownerUid: string, taskId: string): Promise<void> {
-  const store = loadStore();
-  store.tasksByUid[ownerUid] = (store.tasksByUid[ownerUid] ?? []).filter((t) => t.id !== taskId);
-  saveStore(store);
+  if (!auth.currentUser) return;
+  const cleanId = sanitizeId(taskId, 'task');
+  const path = `users/${ownerUid}/tasks/${cleanId}`;
   try {
-    await fetch(`/api/portal/task/${encodeURIComponent(ownerUid)}/${encodeURIComponent(taskId)}`, {
-      method: 'DELETE',
-    });
-  } catch {
-    // offline fallback already updated local state
+    await deleteDoc(doc(db, 'users', ownerUid, 'tasks', cleanId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
   }
 }
 
@@ -998,73 +936,89 @@ export async function verifyTaskEvidence(
   taskId: string,
   evidence: TaskEvidence
 ): Promise<void> {
-  const store = loadStore();
-  const list = [...(store.tasksByUid[studentUid] ?? [])];
-  const idx = list.findIndex((t) => t.id === taskId);
-  if (idx >= 0) {
-    list[idx] = { ...list[idx], evidence };
-    store.tasksByUid[studentUid] = list;
-    saveStore(store);
+  if (!auth.currentUser) return;
+  const cleanId = sanitizeId(taskId, 'task');
+  const path = `users/${studentUid}/tasks/${cleanId}`;
+  try {
+    await updateDoc(doc(db, 'users', studentUid, 'tasks', cleanId), {
+      evidence: sanitizeEvidence(evidence),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
   }
-  await postJson('/api/portal/task/verify', { studentUid, taskId, evidence });
 }
 
 export async function batchReorderAssignments(
   ownerUid: string,
   updates: { tasks: UnscheduledTask[]; events: CalendarEvent[] }
 ): Promise<void> {
-  const store = loadStore();
-  if (updates.tasks.length > 0) {
-    const taskMap = new Map(updates.tasks.map((t) => [t.id, t]));
-    store.tasksByUid[ownerUid] = (store.tasksByUid[ownerUid] ?? []).map(
-      (existing) => taskMap.get(existing.id) ?? existing
-    );
-  }
-  if (updates.events.length > 0) {
-    const eventMap = new Map(updates.events.map((e) => [e.id, e]));
-    store.eventsByUid[ownerUid] = (store.eventsByUid[ownerUid] ?? []).map(
-      (existing) => eventMap.get(existing.id) ?? existing
-    );
-  }
-  saveStore(store);
-  await postJson('/api/portal/batch-reorder', {
-    ownerUid,
-    tasks: updates.tasks,
-    events: updates.events,
+  if (!auth.currentUser) return;
+  const ops: { ref: ReturnType<typeof doc>; data: Record<string, unknown> }[] = [];
+
+  updates.tasks.forEach((task, idx) => {
+    const cleanId = sanitizeId(task.id, 'task');
+    const prio = VALID_PRIORITIES.includes(task.priority) ? task.priority : 'medium';
+    ops.push({
+      ref: doc(db, 'users', ownerUid, 'tasks', cleanId),
+      data: {
+        priority: prio,
+        order: clampInt(task.order ?? idx, 0, 100000, idx),
+        updatedAt: serverTimestamp(),
+      },
+    });
   });
+
+  updates.events.forEach((ev, idx) => {
+    const cleanId = sanitizeId(ev.id, 'evt');
+    const prio = VALID_PRIORITIES.includes(ev.priority) ? ev.priority : 'medium';
+    ops.push({
+      ref: doc(db, 'users', ownerUid, 'events', cleanId),
+      data: {
+        priority: prio,
+        order: clampInt(ev.order ?? idx, 0, 100000, idx),
+        updatedAt: serverTimestamp(),
+      },
+    });
+  });
+
+  try {
+    for (let i = 0; i < ops.length; i += 400) {
+      const batch = writeBatch(db);
+      ops.slice(i, i + 400).forEach((item) => batch.update(item.ref, item.data));
+      await batch.commit();
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `users/${ownerUid}`);
+  }
 }
+
+// --- Two-Way Maker Inbox & User Directory ---
 
 export function subscribePortalUsers(
   onChange: (users: UserProfileDoc[]) => void
 ): () => void {
-  const emit = () => {
-    const store = loadStore();
-    const map = new Map<string, UserProfileDoc>();
+  const fbUser = auth.currentUser;
+  if (!fbUser) return () => {};
+  const myEmail = normalizeEmail(fbUser.email);
+  if (myEmail !== CREATOR_ADMIN_EMAIL.toLowerCase()) {
+    onChange([]);
+    return () => {};
+  }
 
-    Object.values(store.profiles).forEach((prof) => {
-      if (!prof?.email) return;
-      const cleanEmail = prof.email.trim().toLowerCase();
-      if (cleanEmail === CREATOR_ADMIN_EMAIL.toLowerCase()) return;
-      map.set(cleanEmail, prof);
-    });
-
-    Object.values(store.accounts).forEach((acc) => {
-      const u = acc?.user;
-      if (!u?.email) return;
-      const cleanEmail = u.email.trim().toLowerCase();
-      if (cleanEmail === CREATOR_ADMIN_EMAIL.toLowerCase()) return;
-      if (!map.has(cleanEmail)) {
-        map.set(cleanEmail, buildStarterProfile(u));
-      }
-    });
-
-    const sorted = Array.from(map.values()).sort((a, b) =>
-      (a.displayName || a.email).localeCompare(b.displayName || b.email)
-    );
-    onChange(sorted);
-  };
-  emit();
-  return subscribeStore(emit);
+  return onSnapshot(
+    collection(db, 'users'),
+    (snap) => {
+      const users = snap.docs
+        .map((d) => docToUserProfile(d.data() as Record<string, unknown>, d.id))
+        .filter((u) => u.email !== CREATOR_ADMIN_EMAIL.toLowerCase())
+        .sort((a, b) => (a.displayName || a.email).localeCompare(b.displayName || b.email));
+      onChange(users);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'users');
+    }
+  );
 }
 
 export function subscribeFeedbackMessages(
@@ -1072,23 +1026,68 @@ export function subscribeFeedbackMessages(
   isCreator: boolean,
   onChange: (messages: FeedbackMessage[]) => void
 ): () => void {
-  const myEmail = (currentUser.email || '').trim().toLowerCase();
+  if (!auth.currentUser) return () => {};
+  const myEmail = normalizeEmail(currentUser.email);
   const creatorMode = isCreator || myEmail === CREATOR_ADMIN_EMAIL.toLowerCase();
-  const emit = () => {
-    const store = loadStore();
-    const list = store.feedbackMessages
-      .filter((m) => {
-        if (creatorMode) return true;
-        if (m.senderUid === currentUser.uid) return true;
-        const senderEmail = (m.senderEmail || '').trim().toLowerCase();
-        const recipientEmail = (m.recipientEmail || '').trim().toLowerCase();
-        return Boolean(myEmail && (senderEmail === myEmail || recipientEmail === myEmail));
-      })
-      .sort((a, b) => (a.createdAtMs || 0) - (b.createdAtMs || 0));
-    onChange(list);
+
+  if (creatorMode) {
+    return onSnapshot(
+      collection(db, 'feedback_messages'),
+      (snap) => {
+        const list = snap.docs
+          .map((d) => docToFeedbackMessage(d.data() as Record<string, unknown>, d.id))
+          .sort((a, b) => (a.createdAtMs || 0) - (b.createdAtMs || 0));
+        onChange(list);
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'feedback_messages');
+      }
+    );
+  }
+
+  // Regular user: run two rule-aligned queries (sent by me OR addressed to me by creator)
+  const sentMap = new Map<string, FeedbackMessage>();
+  const recvMap = new Map<string, FeedbackMessage>();
+
+  const emitMerged = () => {
+    const merged = new Map<string, FeedbackMessage>([...sentMap, ...recvMap]);
+    onChange(
+      Array.from(merged.values()).sort((a, b) => (a.createdAtMs || 0) - (b.createdAtMs || 0))
+    );
   };
-  emit();
-  return subscribeStore(emit);
+
+  const unsubSent = onSnapshot(
+    query(collection(db, 'feedback_messages'), where('senderUid', '==', currentUser.uid)),
+    (snap) => {
+      sentMap.clear();
+      snap.docs.forEach((d) => {
+        sentMap.set(d.id, docToFeedbackMessage(d.data() as Record<string, unknown>, d.id));
+      });
+      emitMerged();
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'feedback_messages');
+    }
+  );
+
+  const unsubRecv = onSnapshot(
+    query(collection(db, 'feedback_messages'), where('recipientEmail', '==', myEmail)),
+    (snap) => {
+      recvMap.clear();
+      snap.docs.forEach((d) => {
+        recvMap.set(d.id, docToFeedbackMessage(d.data() as Record<string, unknown>, d.id));
+      });
+      emitMerged();
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'feedback_messages');
+    }
+  );
+
+  return () => {
+    unsubSent();
+    unsubRecv();
+  };
 }
 
 export async function sendFeedbackMessage(
@@ -1097,35 +1096,44 @@ export async function sendFeedbackMessage(
   category: FeedbackCategory,
   recipientEmailOverride?: string
 ): Promise<void> {
-  const cleanText = text.trim().slice(0, 1000);
+  if (!auth.currentUser) return;
+  const cleanText = clampStr(text, 1000);
   if (!cleanText) return;
-  const cleanEmail = user.email.trim().toLowerCase();
+
+  const cleanEmail = normalizeEmail(auth.currentUser.email || user.email);
   const isFromCreator = cleanEmail === CREATOR_ADMIN_EMAIL.toLowerCase();
   const cleanRecipient = isFromCreator
-    ? (recipientEmailOverride || '').trim().toLowerCase() || CREATOR_ADMIN_EMAIL
+    ? normalizeEmail(recipientEmailOverride) || CREATOR_ADMIN_EMAIL
     : CREATOR_ADMIN_EMAIL;
 
-  const store = loadStore();
-  const msg: FeedbackMessage = {
-    id: `fb_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+  const msgId = sanitizeId(`fb_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, 'fb');
+  const path = `feedback_messages/${msgId}`;
+
+  const docPayload: Record<string, unknown> = {
+    id: msgId,
     senderUid: user.uid,
-    senderName: user.displayName || cleanEmail.split('@')[0] || 'User',
+    senderName: clampStr(user.displayName || cleanEmail.split('@')[0], 120) || 'User',
     senderEmail: cleanEmail,
-    senderPhotoUrl: user.photoURL,
     recipientEmail: cleanRecipient,
-    category,
+    category: ['feedback', 'idea', 'bug', 'praise'].includes(category) ? category : 'feedback',
     text: cleanText,
     replies: [],
     seenByCreator: isFromCreator,
     seenBySender: !isFromCreator,
     createdAtMs: Date.now(),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   };
-  store.feedbackMessages = [...store.feedbackMessages, msg];
-  saveStore(store);
 
-  sendWsPacket('chat:send', msg);
-  const res = await postJson<{ sync?: Partial<PortalStoreState> }>('/api/portal/feedback', msg);
-  if (res?.sync) applyServerSyncPayload(res.sync);
+  if (user.photoURL) {
+    docPayload.senderPhotoUrl = clampStr(user.photoURL, 500);
+  }
+
+  try {
+    await setDoc(doc(db, 'feedback_messages', msgId), docPayload);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
 }
 
 export async function replyToFeedbackMessage(
@@ -1138,22 +1146,30 @@ export async function replyToFeedbackMessage(
     isCreator?: boolean;
   }
 ): Promise<void> {
-  const cleanReply = replyText.trim().slice(0, 1000);
+  if (!auth.currentUser) return;
+  const cleanReply = clampStr(replyText, 1000);
   if (!cleanReply) return;
 
-  const cleanAuthorEmail = authorEmail.trim().toLowerCase();
+  const cleanId = sanitizeId(messageId, 'fb');
+  const path = `feedback_messages/${cleanId}`;
+  const msgRef = doc(db, 'feedback_messages', cleanId);
+
+  const cleanAuthorEmail = normalizeEmail(auth.currentUser.email || authorEmail);
   const isCreator =
     typeof opts?.isCreator === 'boolean'
       ? opts.isCreator
       : cleanAuthorEmail === CREATOR_ADMIN_EMAIL.toLowerCase();
   const authorName =
-    (opts?.senderName || '').trim() ||
-    (isCreator ? 'Creator (Nicole)' : cleanAuthorEmail.split('@')[0] || 'User');
+    clampStr(
+      opts?.senderName ||
+        (isCreator ? 'Nicole (Maker)' : cleanAuthorEmail.split('@')[0] || 'User'),
+      120
+    ) || 'User';
   const now = Date.now();
 
   const newReply: FeedbackReply = {
-    id: `fbr_${now}_${Math.random().toString(36).slice(2, 7)}`,
-    senderUid: opts?.senderUid,
+    id: sanitizeId(`fbr_${now}_${Math.random().toString(36).slice(2, 7)}`, 'fbr'),
+    senderUid: clampStr(opts?.senderUid || auth.currentUser.uid, 128),
     senderName: authorName,
     senderEmail: cleanAuthorEmail,
     isCreator,
@@ -1161,29 +1177,35 @@ export async function replyToFeedbackMessage(
     createdAtMs: now,
   };
 
-  const store = loadStore();
-  store.feedbackMessages = store.feedbackMessages.map((m) => {
-    if (m.id !== messageId) return m;
-    const existingReplies: FeedbackReply[] = Array.isArray(m.replies)
-      ? [...m.replies]
-      : m.replyText
+  try {
+    const snap = await getDoc(msgRef);
+    if (!snap.exists()) return;
+    const raw = snap.data() as Record<string, unknown>;
+    const existingReplies: FeedbackReply[] = Array.isArray(raw.replies)
+      ? [...(raw.replies as FeedbackReply[])]
+      : typeof raw.replyText === 'string' && raw.replyText
       ? [
           {
-            id: `fbr_legacy_${m.id}`,
+            id: `fbr_legacy_${cleanId}`,
             senderName: 'Creator',
-            senderEmail: m.replyByEmail || CREATOR_ADMIN_EMAIL,
+            senderEmail: normalizeEmail(raw.replyByEmail as string) || CREATOR_ADMIN_EMAIL,
             isCreator: true,
-            text: m.replyText,
-            createdAtMs: m.replyAtMs || m.createdAtMs || now - 1,
+            text: clampStr(raw.replyText, 1000),
+            createdAtMs:
+              typeof raw.replyAtMs === 'number'
+                ? raw.replyAtMs
+                : typeof raw.createdAtMs === 'number'
+                ? raw.createdAtMs
+                : now - 1,
           },
         ]
       : [];
 
     existingReplies.push(newReply);
+    const boundedReplies = existingReplies.slice(-100);
 
-    return {
-      ...m,
-      replies: existingReplies,
+    await updateDoc(msgRef, {
+      replies: boundedReplies,
       ...(isCreator
         ? {
             replyText: cleanReply,
@@ -1196,64 +1218,40 @@ export async function replyToFeedbackMessage(
             seenByCreator: false,
             seenBySender: true,
           }),
-    };
-  });
-  saveStore(store);
-
-  const replyPayload = {
-    messageId,
-    replyId: newReply.id,
-    replyText: cleanReply,
-    adminEmail: isCreator ? cleanAuthorEmail : undefined,
-    senderEmail: cleanAuthorEmail,
-    senderName: authorName,
-    senderUid: opts?.senderUid,
-    isCreator,
-    createdAtMs: now,
-  };
-  sendWsPacket('chat:reply', replyPayload);
-
-  const res = await postJson<{ sync?: Partial<PortalStoreState> }>(
-    '/api/portal/feedback/reply',
-    replyPayload
-  );
-  if (res?.sync) applyServerSyncPayload(res.sync);
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
 }
 
 export async function markFeedbackMessagesSeen(
   messageIds: string[],
   viewerEmail: string
 ): Promise<void> {
-  const cleanViewer = viewerEmail.trim().toLowerCase();
-  if (!cleanViewer || messageIds.length === 0) return;
+  if (!auth.currentUser || messageIds.length === 0) return;
+  const cleanViewer = normalizeEmail(auth.currentUser.email || viewerEmail);
+  if (!cleanViewer) return;
 
-  const idSet = new Set(messageIds);
   const viewerIsCreator = cleanViewer === CREATOR_ADMIN_EMAIL.toLowerCase();
-  let changed = false;
 
-  const store = loadStore();
-  store.feedbackMessages = store.feedbackMessages.map((m) => {
-    if (!idSet.has(m.id)) return m;
-    if (viewerIsCreator && m.seenByCreator !== true) {
-      changed = true;
-      return { ...m, seenByCreator: true };
-    }
-    const senderMatch = (m.senderEmail || '').trim().toLowerCase() === cleanViewer;
-    const recipientMatch = (m.recipientEmail || '').trim().toLowerCase() === cleanViewer;
-    if (!viewerIsCreator && (senderMatch || recipientMatch) && m.seenBySender === false) {
-      changed = true;
-      return { ...m, seenBySender: true };
-    }
-    return m;
-  });
-
-  if (changed) {
-    saveStore(store);
-    sendWsPacket('chat:seen', { messageIds, viewerEmail: cleanViewer });
-    const res = await postJson<{ sync?: Partial<PortalStoreState> }>('/api/portal/feedback/seen', {
-      messageIds,
-      viewerEmail: cleanViewer,
+  try {
+    const batch = writeBatch(db);
+    let opsCount = 0;
+    messageIds.forEach((rawId) => {
+      const cleanId = sanitizeId(rawId, 'fb');
+      const ref = doc(db, 'feedback_messages', cleanId);
+      if (viewerIsCreator) {
+        batch.update(ref, { seenByCreator: true, updatedAt: serverTimestamp() });
+      } else {
+        batch.update(ref, { seenBySender: true, updatedAt: serverTimestamp() });
+      }
+      opsCount += 1;
     });
-    if (res?.sync) applyServerSyncPayload(res.sync);
+    if (opsCount > 0) {
+      await batch.commit();
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, 'feedback_messages');
   }
 }

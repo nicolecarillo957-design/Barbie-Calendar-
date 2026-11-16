@@ -26,10 +26,7 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isSignedIn() && (
-        request.auth.token.email == 'nicolecarillo957@gmail.com' ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
-      );
+      return isSignedIn() && request.auth.token.email == 'nicolecarillo957@gmail.com';
     }
 
     function isOwner(userId) {
@@ -91,7 +88,7 @@ service cloud.firestore {
           'id', 'ownerUid', 'teacherEmail', 'title', 'subject', 'description', 'category',
           'date', 'startTime', 'endTime', 'isCompleted', 'priority',
           'location', 'meetingUrl', 'focusNotes', 'recurrence', 'sourceTaskId',
-          'pointsValue', 'subtasks', 'reminders', 'evidence', 'createdAt', 'updatedAt'
+          'pointsValue', 'order', 'subtasks', 'reminders', 'evidence', 'createdAt', 'updatedAt'
         ]) &&
         isValidId(data.id) &&
         data.id == eventId &&
@@ -113,6 +110,7 @@ service cloud.firestore {
         (!('recurrence' in data) || (data.recurrence in ['none', 'daily', 'weekdays', 'weekly'])) &&
         (!('sourceTaskId' in data) || (data.sourceTaskId is string && data.sourceTaskId.size() <= 128)) &&
         (!('pointsValue' in data) || (data.pointsValue is int && data.pointsValue >= 0 && data.pointsValue <= 100)) &&
+        (!('order' in data) || (data.order is int && data.order >= 0 && data.order <= 100000)) &&
         (!('subtasks' in data) || (data.subtasks is list && data.subtasks.size() <= 30 && (data.subtasks.size() == 0 || data.subtasks[0] is map))) &&
         (!('reminders' in data) || (data.reminders is list && data.reminders.size() <= 10 && (data.reminders.size() == 0 || data.reminders[0] is map))) &&
         (!('evidence' in data) || isValidEvidence(data.evidence)) &&
@@ -128,7 +126,7 @@ service cloud.firestore {
         data.keys().hasOnly([
           'id', 'ownerUid', 'teacherEmail', 'title', 'subject', 'category', 'estimatedMinutes',
           'priority', 'completed', 'dueDate', 'dueTime', 'description',
-          'reminderMinutesBefore', 'reminderTime', 'pointsValue', 'evidence',
+          'reminderMinutesBefore', 'reminderTime', 'pointsValue', 'order', 'evidence',
           'createdAt', 'updatedAt'
         ]) &&
         isValidId(data.id) &&
@@ -148,6 +146,7 @@ service cloud.firestore {
         (!('reminderMinutesBefore' in data) || (data.reminderMinutesBefore is int && data.reminderMinutesBefore >= 0 && data.reminderMinutesBefore <= 10080)) &&
         (!('reminderTime' in data) || (data.reminderTime is string && data.reminderTime.size() <= 64)) &&
         (!('pointsValue' in data) || (data.pointsValue is int && data.pointsValue >= 0 && data.pointsValue <= 100)) &&
+        (!('order' in data) || (data.order is int && data.order >= 0 && data.order <= 100000)) &&
         (!('evidence' in data) || isValidEvidence(data.evidence)) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
@@ -161,6 +160,7 @@ service cloud.firestore {
         data.keys().hasOnly([
           'id', 'senderUid', 'senderName', 'senderEmail', 'senderPhotoUrl',
           'recipientEmail', 'category', 'text', 'replyText', 'replyByEmail',
+          'replyAtMs', 'replies', 'seenByCreator', 'seenBySender', 'createdAtMs',
           'createdAt', 'updatedAt'
         ]) &&
         isValidId(data.id) &&
@@ -169,11 +169,37 @@ service cloud.firestore {
         data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 120 &&
         data.senderEmail is string && data.senderEmail.size() >= 3 && data.senderEmail.size() <= 200 &&
         (!('senderPhotoUrl' in data) || (data.senderPhotoUrl is string && data.senderPhotoUrl.size() <= 500)) &&
-        data.recipientEmail == 'nicolecarillo957@gmail.com' &&
+        data.recipientEmail is string && data.recipientEmail.size() >= 3 && data.recipientEmail.size() <= 200 &&
         data.category in ['feedback', 'idea', 'bug', 'praise'] &&
         data.text is string && data.text.size() >= 1 && data.text.size() <= 1000 &&
         (!('replyText' in data) || (data.replyText is string && data.replyText.size() <= 1000)) &&
         (!('replyByEmail' in data) || (data.replyByEmail is string && data.replyByEmail.size() <= 200)) &&
+        (!('replyAtMs' in data) || (data.replyAtMs is int && data.replyAtMs >= 0)) &&
+        (!('replies' in data) || (data.replies is list && data.replies.size() <= 100 && (data.replies.size() == 0 || data.replies[0] is map))) &&
+        (!('seenByCreator' in data) || (data.seenByCreator is bool)) &&
+        (!('seenBySender' in data) || (data.seenBySender is bool)) &&
+        (!('createdAtMs' in data) || (data.createdAtMs is int && data.createdAtMs >= 0)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidTeacherNotification(data, notifId) {
+      return data.keys().hasAll([
+          'id', 'teacherEmail', 'studentUid', 'studentName', 'studentEmail',
+          'createdAtMs', 'seenByTeacher', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'teacherEmail', 'studentUid', 'studentName', 'studentEmail',
+          'createdAtMs', 'seenByTeacher', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        data.id == notifId &&
+        data.teacherEmail is string && data.teacherEmail.size() >= 3 && data.teacherEmail.size() <= 200 &&
+        isValidId(data.studentUid) &&
+        data.studentName is string && data.studentName.size() >= 1 && data.studentName.size() <= 120 &&
+        data.studentEmail is string && data.studentEmail.size() >= 3 && data.studentEmail.size() <= 200 &&
+        data.createdAtMs is int && data.createdAtMs >= 0 &&
+        data.seenByTeacher is bool &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
     }
@@ -204,7 +230,7 @@ service cloud.firestore {
 
       allow update: if isValidId(userId) &&
         isValidUserProfile(incoming(), userId) &&
-        isOwner(userId) &&
+        (isOwner(userId) || isAdmin()) &&
         incoming().uid == existing().uid &&
         incoming().email == existing().email &&
         incoming().createdAt == existing().createdAt &&
@@ -216,7 +242,7 @@ service cloud.firestore {
 
       allow delete: if false;
 
-      // 2. Student Calendar Events
+      // 2. Student Calendar Events (Master Gate verifies student parent profile exists)
       match /events/{eventId} {
         allow get: if isValidId(userId) && isValidId(eventId) && (
           isAdmin() ||
@@ -234,6 +260,7 @@ service cloud.firestore {
         allow create: if isValidId(userId) && isValidId(eventId) &&
           isOwner(userId) &&
           isValidEvent(incoming(), userId, eventId) &&
+          exists(/databases/$(database)/documents/users/$(userId)) &&
           incoming().createdAt == request.time &&
           incoming().updatedAt == request.time;
 
@@ -246,7 +273,7 @@ service cloud.firestore {
             (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly([
               'teacherEmail', 'title', 'subject', 'description', 'category', 'date', 'startTime', 'endTime',
               'isCompleted', 'priority', 'location', 'meetingUrl', 'focusNotes', 'recurrence',
-              'sourceTaskId', 'pointsValue', 'subtasks', 'reminders', 'evidence', 'updatedAt'
+              'sourceTaskId', 'pointsValue', 'order', 'subtasks', 'reminders', 'evidence', 'updatedAt'
             ])) ||
             // Tier 2: Assigned Teacher or Admin verifies evidence & leaves feedback
             ((isAdmin() || (isSignedIn() && existing().teacherEmail is string && existing().teacherEmail.size() > 0 && existing().teacherEmail == request.auth.token.email)) &&
@@ -256,7 +283,7 @@ service cloud.firestore {
         allow delete: if isValidId(userId) && isValidId(eventId) && isOwner(userId);
       }
 
-      // 3. Student Backlog Tasks
+      // 3. Student Backlog Tasks (Master Gate verifies student parent profile exists)
       match /tasks/{taskId} {
         allow get: if isValidId(userId) && isValidId(taskId) && (
           isAdmin() ||
@@ -274,6 +301,7 @@ service cloud.firestore {
         allow create: if isValidId(userId) && isValidId(taskId) &&
           isOwner(userId) &&
           isValidTask(incoming(), userId, taskId) &&
+          exists(/databases/$(database)/documents/users/$(userId)) &&
           incoming().createdAt == request.time &&
           incoming().updatedAt == request.time;
 
@@ -286,7 +314,7 @@ service cloud.firestore {
             (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly([
               'teacherEmail', 'title', 'subject', 'category', 'estimatedMinutes', 'priority', 'completed',
               'dueDate', 'dueTime', 'description', 'reminderMinutesBefore', 'reminderTime',
-              'pointsValue', 'evidence', 'updatedAt'
+              'pointsValue', 'order', 'evidence', 'updatedAt'
             ])) ||
             // Tier 2: Assigned Teacher or Admin verifies evidence & leaves feedback
             ((isAdmin() || (isSignedIn() && existing().teacherEmail is string && existing().teacherEmail.size() > 0 && existing().teacherEmail == request.auth.token.email)) &&
@@ -297,15 +325,21 @@ service cloud.firestore {
       }
     }
 
-    // 4. App Feedback & Creator Chat Messages
+    // 4. Two-Way App Chat & Feedback Threads -> Creator Admin (nicolecarillo957@gmail.com)
     match /feedback_messages/{messageId} {
       allow get: if isValidId(messageId) && (
         isAdmin() ||
-        (isSignedIn() && existing().senderUid == request.auth.uid)
+        (isSignedIn() && (
+          existing().senderUid == request.auth.uid ||
+          existing().recipientEmail == request.auth.token.email
+        ))
       );
 
       allow list: if isAdmin() || (
-        isSignedIn() && existing().senderUid == request.auth.uid
+        isSignedIn() && (
+          existing().senderUid == request.auth.uid ||
+          existing().recipientEmail == request.auth.token.email
+        )
       );
 
       allow create: if isValidId(messageId) &&
@@ -313,23 +347,81 @@ service cloud.firestore {
         isValidFeedbackMessage(incoming(), messageId) &&
         incoming().senderUid == request.auth.uid &&
         incoming().senderEmail == request.auth.token.email &&
+        (isAdmin() || incoming().recipientEmail == 'nicolecarillo957@gmail.com') &&
+        (!('replyText' in incoming()) && !('replyByEmail' in incoming()) && !('replyAtMs' in incoming())) &&
         incoming().createdAt == request.time &&
-        incoming().updatedAt == request.time &&
-        !('replyText' in incoming()) &&
-        !('replyByEmail' in incoming());
+        incoming().updatedAt == request.time;
 
       allow update: if isValidId(messageId) &&
-        isAdmin() &&
         isValidFeedbackMessage(incoming(), messageId) &&
         incoming().senderUid == existing().senderUid &&
         incoming().senderEmail == existing().senderEmail &&
+        incoming().recipientEmail == existing().recipientEmail &&
         incoming().createdAt == existing().createdAt &&
-        incoming().updatedAt == request.time &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['replyText', 'replyByEmail', 'updatedAt']);
+        incoming().updatedAt == request.time && (
+          // Tier 1: App Creator (Admin) sends reply & updates read flags
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly([
+            'replies', 'replyText', 'replyByEmail', 'replyAtMs', 'seenByCreator', 'seenBySender', 'updatedAt'
+          ])) ||
+          // Tier 2: Participant User appends follow-up chat reply to Maker
+          (isSignedIn() &&
+            (existing().senderUid == request.auth.uid || existing().recipientEmail == request.auth.token.email) &&
+            incoming().seenByCreator == false &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'replies', 'seenByCreator', 'seenBySender', 'updatedAt'
+            ])) ||
+          // Tier 3: Participant User marks creator replies as seen
+          (isSignedIn() &&
+            (existing().senderUid == request.auth.uid || existing().recipientEmail == request.auth.token.email) &&
+            incoming().seenBySender == true &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['seenBySender', 'updatedAt']))
+        );
 
       allow delete: if isValidId(messageId) && (
         isAdmin() ||
         (isSignedIn() && existing().senderUid == request.auth.uid)
+      );
+    }
+
+    // 5. Instant Teacher Link Notifications
+    match /teacher_notifications/{notifId} {
+      allow get: if isValidId(notifId) && (
+        isAdmin() ||
+        (isSignedIn() && (
+          existing().teacherEmail == request.auth.token.email ||
+          existing().studentUid == request.auth.uid
+        ))
+      );
+
+      allow list: if isAdmin() || (
+        isSignedIn() && (
+          existing().teacherEmail == request.auth.token.email ||
+          existing().studentUid == request.auth.uid
+        )
+      );
+
+      allow create: if isValidId(notifId) &&
+        isSignedIn() &&
+        isValidTeacherNotification(incoming(), notifId) &&
+        incoming().studentUid == request.auth.uid &&
+        incoming().studentEmail == request.auth.token.email &&
+        incoming().seenByTeacher == false &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isValidId(notifId) &&
+        isValidTeacherNotification(incoming(), notifId) &&
+        (isAdmin() || (isSignedIn() && existing().teacherEmail == request.auth.token.email)) &&
+        incoming().studentUid == existing().studentUid &&
+        incoming().teacherEmail == existing().teacherEmail &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['seenByTeacher', 'updatedAt']);
+
+      allow delete: if isValidId(notifId) && (
+        isAdmin() ||
+        (isSignedIn() && (existing().studentUid == request.auth.uid || existing().teacherEmail == request.auth.token.email))
       );
     }
   }

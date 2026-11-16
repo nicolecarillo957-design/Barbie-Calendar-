@@ -101,7 +101,7 @@ const INITIAL_NOTIFICATIONS: AppNotification[] = [
 ];
 
 export default function App() {
-  // 0. Local Portal Authentication State (No Firebase)
+  // 0. Firebase Google Authentication State
   const [currentUser, setCurrentUser] = useState<PortalUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
 

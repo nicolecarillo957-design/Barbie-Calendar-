@@ -2,11 +2,6 @@ import React, { useRef, useState } from 'react';
 import { CalendarEvent, UnscheduledTask, UserRole } from '../types/calendar';
 import { downloadFile, exportToIcs } from '../utils/dateUtils';
 import {
-  getCurrentPortalUser,
-  hasAccountPassword,
-  setOrUpdateAccountPassword,
-} from '../localPortal';
-import {
   Download,
   Upload,
   RotateCcw,
@@ -16,11 +11,6 @@ import {
   Heart,
   Mail,
   LogOut,
-  Lock,
-  Eye,
-  EyeOff,
-  CheckCircle2,
-  AlertCircle,
   ShieldCheck,
   BookOpen,
   GraduationCap,
@@ -81,17 +71,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [copiedTeacherEmail, setCopiedTeacherEmail] = useState(false);
   const isTeacherAccount = userRole === 'teacher';
 
-  // Password Security State
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmNewPassword, setConfirmNewPassword] = useState('');
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [savingPassword, setSavingPassword] = useState(false);
-  const [passwordStatusMsg, setPasswordStatusMsg] = useState<string | null>(null);
-  const [passwordErrorMsg, setPasswordErrorMsg] = useState<string | null>(null);
-
-  const userHasPassword = hasAccountPassword(getCurrentPortalUser());
-
   React.useEffect(() => {
     setLocalStudentName(studentName);
   }, [studentName]);
@@ -138,43 +117,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       }
     };
     reader.readAsText(file);
-  };
-
-  const handleSavePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setPasswordErrorMsg(null);
-    setPasswordStatusMsg(null);
-
-    if (userHasPassword && !currentPassword) {
-      setPasswordErrorMsg('Please enter your current password first.');
-      return;
-    }
-    if (newPassword.length < 4) {
-      setPasswordErrorMsg('Password must be at least 4 characters.');
-      return;
-    }
-    if (newPassword !== confirmNewPassword) {
-      setPasswordErrorMsg('New passwords do not match.');
-      return;
-    }
-
-    setSavingPassword(true);
-    try {
-      await setOrUpdateAccountPassword(newPassword, userHasPassword ? currentPassword : undefined);
-      cuteSound.playCelebrationFanfare();
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmNewPassword('');
-      setPasswordStatusMsg(
-        userHasPassword
-          ? 'Your account password has been updated securely!'
-          : 'Safety password added! You can now sign in using your email + password anytime.'
-      );
-    } catch (err) {
-      setPasswordErrorMsg(err instanceof Error ? err.message : 'Could not update password.');
-    } finally {
-      setSavingPassword(false);
-    }
   };
 
   return (
@@ -270,98 +212,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           )}
 
-          {/* Section 0.1: Account Safety & Password */}
-          <div className="p-3.5 sm:p-4 bg-gradient-to-br from-emerald-50/60 to-pink-50/70 border border-emerald-200 rounded-2xl space-y-3">
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <span className="w-8 h-8 rounded-full bg-white text-emerald-600 flex items-center justify-center border border-emerald-200 shadow-2xs shrink-0">
-                  <Lock className="w-4 h-4" />
-                </span>
-                <div>
-                  <h4 className="text-xs font-black uppercase tracking-wider text-pink-950">
-                    Account Safety &amp; Password
-                  </h4>
-                  <p className="text-[11px] text-pink-700 font-medium">
-                    {userHasPassword
-                      ? 'Password protection active. Update your password below anytime.'
-                      : 'Create a backup safety password for your Gmail account.'}
-                  </p>
-                </div>
-              </div>
-              <span
-                className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold shrink-0 flex items-center gap-1 ${
-                  userHasPassword
-                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                    : 'bg-amber-100 text-amber-800 border border-amber-300'
-                }`}
-              >
-                <ShieldCheck className="w-3 h-3" />
-                <span>{userHasPassword ? 'Protected' : 'Set Password'}</span>
+          {/* Section 0.1: Google Account & Cloud Sync Security */}
+          <div className="p-3.5 sm:p-4 bg-gradient-to-br from-emerald-50/60 to-pink-50/70 border border-emerald-200 rounded-2xl flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="w-8 h-8 rounded-full bg-white text-emerald-600 flex items-center justify-center border border-emerald-200 shadow-2xs shrink-0">
+                <ShieldCheck className="w-4 h-4" />
               </span>
+              <div className="min-w-0">
+                <h4 className="text-xs font-black uppercase tracking-wider text-pink-950">
+                  Firebase Cloud Sync Active
+                </h4>
+                <p className="text-[11px] text-pink-700 font-medium truncate">
+                  {userEmail ? `Verified Google session (${userEmail})` : 'Protected by Google Sign-In'}
+                </p>
+              </div>
             </div>
-
-            {passwordErrorMsg && (
-              <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-300 text-rose-800 text-[11px] flex items-start gap-1.5">
-                <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0 mt-0.5" />
-                <span>{passwordErrorMsg}</span>
-              </div>
-            )}
-
-            {passwordStatusMsg && (
-              <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-800 text-[11px] font-semibold flex items-start gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                <span>{passwordStatusMsg}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleSavePassword} className="space-y-2">
-              {userHasPassword && (
-                <input
-                  type="password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  placeholder="Current password"
-                  autoComplete="current-password"
-                  className="w-full text-xs px-3 py-2 bg-white border border-pink-200 rounded-xl text-pink-950 focus:outline-none focus:ring-1 focus:ring-pink-400"
-                />
-              )}
-              <div className="relative">
-                <input
-                  type={showNewPassword ? 'text' : 'password'}
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="New password (4+ characters)"
-                  autoComplete="new-password"
-                  className="w-full text-xs pl-3 pr-9 py-2 bg-white border border-pink-200 rounded-xl text-pink-950 focus:outline-none focus:ring-1 focus:ring-pink-400"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowNewPassword((p) => !p)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-pink-400 hover:text-pink-700"
-                >
-                  {showNewPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-              <input
-                type={showNewPassword ? 'text' : 'password'}
-                value={confirmNewPassword}
-                onChange={(e) => setConfirmNewPassword(e.target.value)}
-                placeholder="Confirm new password"
-                autoComplete="new-password"
-                className="w-full text-xs px-3 py-2 bg-white border border-pink-200 rounded-xl text-pink-950 focus:outline-none focus:ring-1 focus:ring-pink-400"
-              />
-              <button
-                type="submit"
-                disabled={savingPassword}
-                className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-colors"
-              >
-                {savingPassword
-                  ? 'Saving password...'
-                  : userHasPassword
-                  ? 'Update Password 🔐'
-                  : 'Create Safety Password 🔐'}
-              </button>
-            </form>
+            <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold shrink-0 bg-emerald-100 text-emerald-800 border border-emerald-300">
+              Verified
+            </span>
           </div>
 
           {/* Section 0.2: Role Switcher & Profile */}
