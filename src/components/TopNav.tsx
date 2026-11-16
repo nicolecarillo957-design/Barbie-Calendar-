@@ -17,6 +17,7 @@ import {
   X,
   GraduationCap,
   ClipboardList,
+  MessageCircleHeart,
 } from 'lucide-react';
 
 interface TopNavProps {
@@ -40,6 +41,8 @@ interface TopNavProps {
   isFocusActive: boolean;
   onOpenNotifications: () => void;
   unreadNotificationCount: number;
+  onOpenMessages?: () => void;
+  unreadMessageCount?: number;
   pendingTaskCount?: number;
   streakDays?: number;
   totalPoints?: number;
@@ -75,6 +78,8 @@ export const TopNav: React.FC<TopNavProps> = ({
   isFocusActive,
   onOpenNotifications,
   unreadNotificationCount,
+  onOpenMessages,
+  unreadMessageCount = 0,
   pendingTaskCount = 0,
   streakDays,
   totalPoints,
@@ -335,6 +340,23 @@ export const TopNav: React.FC<TopNavProps> = ({
               </span>
             )}
           </button>
+
+          {/* Direct Message / Creator Feedback Inbox Button */}
+          {onOpenMessages && (
+            <button
+              onClick={onOpenMessages}
+              className="relative p-1.5 sm:p-2 text-fuchsia-700 hover:text-fuchsia-900 bg-white hover:bg-pink-100 border border-pink-300 rounded-lg transition-colors flex items-center justify-center shadow-2xs"
+              title="Messages & Feedback Inbox"
+              aria-label="Messages and Feedback Inbox"
+            >
+              <MessageCircleHeart className="w-4 h-4 text-pink-600" />
+              {unreadMessageCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-amber-400 text-pink-950 font-mono text-[9px] font-black flex items-center justify-center shadow-xs border border-white">
+                  {unreadMessageCount > 9 ? '9+' : unreadMessageCount}
+                </span>
+              )}
+            </button>
+          )}
 
           {/* Compact User Avatar / Settings shortcut on mobile, full badge on desktop */}
           {userEmail && (

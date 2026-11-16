@@ -136,6 +136,16 @@ export interface UserProfileDoc {
 
 export type FeedbackCategory = 'feedback' | 'idea' | 'bug' | 'praise';
 
+export interface FeedbackReply {
+  id: string;
+  senderUid?: string;
+  senderName: string;
+  senderEmail: string;
+  isCreator: boolean;
+  text: string;
+  createdAtMs: number;
+}
+
 export interface FeedbackMessage {
   id: string;
   senderUid: string;
@@ -147,7 +157,20 @@ export interface FeedbackMessage {
   text: string;
   replyText?: string;
   replyByEmail?: string;
+  replyAtMs?: number;
+  replies?: FeedbackReply[];
+  seenByCreator?: boolean;
+  seenBySender?: boolean;
   createdAtMs?: number;
 }
 
+export interface TeacherLinkNotification {
+  id: string;
+  teacherEmail: string;
+  studentUid: string;
+  studentName: string;
+  studentEmail: string;
+  createdAtMs: number;
+  seenByUids?: string[];
+}
 

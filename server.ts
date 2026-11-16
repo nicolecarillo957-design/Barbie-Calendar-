@@ -7,7 +7,14 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = Number(process.env.PORT || 3000);
+const envPort = Number(process.env.PORT);
+const nginxPort = Number(process.env.NGINX_PORT || 8080);
+const PORT =
+  process.env.NODE_ENV === 'production'
+    ? envPort || 3000
+    : !envPort || envPort === nginxPort
+    ? 3000
+    : envPort;
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'portal-db.json');
 const CREATOR_ADMIN_EMAIL = 'nicolecarillo957@gmail.com';
@@ -38,12 +45,23 @@ interface UserProfileDoc {
   historyDates: string[];
 }
 
+interface TeacherLinkNotification {
+  id: string;
+  teacherEmail: string;
+  studentUid: string;
+  studentName: string;
+  studentEmail: string;
+  createdAtMs: number;
+  seenByUids?: string[];
+}
+
 interface PortalDb {
   accounts: Record<string, StoredAccount>;
   profiles: Record<string, UserProfileDoc>;
   eventsByUid: Record<string, Record<string, unknown>[]>;
   tasksByUid: Record<string, Record<string, unknown>[]>;
   feedbackMessages: Record<string, unknown>[];
+  teacherNotifications: TeacherLinkNotification[];
 }
 
 function makeUidFromEmail(email: string): string {
@@ -69,6 +87,19 @@ function buildStarterProfile(user: PortalUser): UserProfileDoc {
   };
 }
 
+function parseEmailList(raw?: string): string[] {
+  if (!raw) return [];
+  return Array.from(
+    new Set(
+      raw
+        .toLowerCase()
+        .split(/[\s,;]+/)
+        .map((s) => s.trim())
+        .filter((s) => s.includes('@'))
+    )
+  );
+}
+
 function loadDb(): PortalDb {
   try {
     if (fs.existsSync(DB_FILE)) {
@@ -80,6 +111,9 @@ function loadDb(): PortalDb {
         eventsByUid: parsed.eventsByUid ?? {},
         tasksByUid: parsed.tasksByUid ?? {},
         feedbackMessages: Array.isArray(parsed.feedbackMessages) ? parsed.feedbackMessages : [],
+        teacherNotifications: Array.isArray(parsed.teacherNotifications)
+          ? parsed.teacherNotifications
+          : [],
       };
     }
   } catch (err) {
@@ -91,10 +125,23 @@ function loadDb(): PortalDb {
     eventsByUid: {},
     tasksByUid: {},
     feedbackMessages: [],
+    teacherNotifications: [],
   };
 }
 
 let db: PortalDb = loadDb();
+const sseClients = new Set<Response>();
+
+function broadcastSync(): void {
+  const payload = `event: sync\ndata: ${Date.now()}\n\n`;
+  for (const client of sseClients) {
+    try {
+      client.write(payload);
+    } catch {
+      sseClients.delete(client);
+    }
+  }
+}
 
 function persistDb(): void {
   try {
@@ -105,6 +152,28 @@ function persistDb(): void {
   } catch (err) {
     console.error('Failed persisting portal-db.json:', err);
   }
+  broadcastSync();
+}
+
+function enqueueTeacherLinkNotifications(
+  studentProfile: UserProfileDoc,
+  teacherEmails: string[]
+): void {
+  for (const tEmail of teacherEmails) {
+    if (!tEmail || tEmail === studentProfile.email.toLowerCase()) continue;
+    db.teacherNotifications.push({
+      id: `tlink_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      teacherEmail: tEmail,
+      studentUid: studentProfile.uid,
+      studentName: studentProfile.displayName || studentProfile.email.split('@')[0] || 'Student',
+      studentEmail: studentProfile.email.toLowerCase(),
+      createdAtMs: Date.now(),
+      seenByUids: [],
+    });
+  }
+  if (db.teacherNotifications.length > 300) {
+    db.teacherNotifications = db.teacherNotifications.slice(-300);
+  }
 }
 
 function getSyncPayload() {
@@ -114,6 +183,7 @@ function getSyncPayload() {
     eventsByUid: db.eventsByUid,
     tasksByUid: db.tasksByUid,
     feedbackMessages: db.feedbackMessages,
+    teacherNotifications: db.teacherNotifications,
   };
 }
 
@@ -121,7 +191,31 @@ async function startServer() {
   const app = express();
   app.use(express.json({ limit: '15mb' }));
 
-  // Health & Full Sync
+  // Live Server-Sent Events stream for immediate teacher notifications & sync
+  app.get('/api/portal/stream', (req: Request, res: Response) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+    res.write(`event: connected\ndata: ${Date.now()}\n\n`);
+    sseClients.add(res);
+
+    const keepAlive = setInterval(() => {
+      try {
+        res.write(': keepalive\n\n');
+      } catch {
+        clearInterval(keepAlive);
+        sseClients.delete(res);
+      }
+    }, 25000);
+
+    req.on('close', () => {
+      clearInterval(keepAlive);
+      sseClients.delete(res);
+    });
+  });
+
+  // Full Sync
   app.get('/api/portal/sync', (_req: Request, res: Response) => {
     res.json(getSyncPayload());
   });
@@ -153,7 +247,9 @@ async function startServer() {
             ...existing,
             displayName: existing.displayName || prof.displayName,
             role: existing.role || prof.role,
-            teacherEmail: existing.teacherEmail || (prof.teacherEmail ? prof.teacherEmail.trim().toLowerCase() : undefined),
+            teacherEmail:
+              existing.teacherEmail ||
+              (prof.teacherEmail ? prof.teacherEmail.trim().toLowerCase() : undefined),
             currentStreak: Math.max(existing.currentStreak ?? 0, prof.currentStreak ?? 0),
             bestStreak: Math.max(existing.bestStreak ?? 0, prof.bestStreak ?? 0),
             totalPoints: Math.max(existing.totalPoints ?? 0, prof.totalPoints ?? 0),
@@ -199,6 +295,15 @@ async function startServer() {
       for (const msg of body.feedbackMessages) {
         if (msg && !existingIds.has(String(msg.id))) {
           db.feedbackMessages.push(msg);
+        }
+      }
+    }
+
+    if (Array.isArray(body.teacherNotifications)) {
+      const existingIds = new Set(db.teacherNotifications.map((n) => n.id));
+      for (const n of body.teacherNotifications) {
+        if (n?.id && !existingIds.has(n.id)) {
+          db.teacherNotifications.push(n);
         }
       }
     }
@@ -363,19 +468,98 @@ async function startServer() {
         ? profile.teacherEmail.trim().toLowerCase()
         : existing?.teacherEmail;
 
-    db.profiles[profile.uid] = {
+    const prevTeachers = new Set(parseEmailList(existing?.teacherEmail));
+    const nextTeachers = parseEmailList(cleanTeacherEmail);
+    const newlyAddedTeachers = nextTeachers.filter((t) => !prevTeachers.has(t));
+
+    const updatedProfile: UserProfileDoc = {
       ...existing,
       ...profile,
       email: cleanEmail,
       teacherEmail: cleanTeacherEmail,
     };
 
+    db.profiles[profile.uid] = updatedProfile;
+
     if (db.accounts[profile.uid]) {
-      db.accounts[profile.uid].user.displayName = db.profiles[profile.uid].displayName;
+      db.accounts[profile.uid].user.displayName = updatedProfile.displayName;
+    }
+
+    if (newlyAddedTeachers.length > 0) {
+      enqueueTeacherLinkNotifications(updatedProfile, newlyAddedTeachers);
     }
 
     persistDb();
-    res.json({ profile: db.profiles[profile.uid], sync: getSyncPayload() });
+    res.json({ profile: updatedProfile, sync: getSyncPayload() });
+  });
+
+  // Explicit Student -> Teacher Gmail link endpoint (always notifies teacher immediately!)
+  app.post('/api/portal/link-teacher', (req: Request, res: Response) => {
+    const { studentProfile, teacherEmail = '', notification, notifications } = req.body as {
+      studentProfile?: UserProfileDoc;
+      teacherEmail?: string;
+      notification?: TeacherLinkNotification;
+      notifications?: TeacherLinkNotification[];
+    };
+    if (!studentProfile?.uid || !studentProfile?.email) {
+      res.status(400).json({ error: 'Missing student profile.' });
+      return;
+    }
+
+    const cleanStudentEmail = studentProfile.email.trim().toLowerCase();
+    const cleanTeacher = teacherEmail.trim().toLowerCase();
+    const existing = db.profiles[studentProfile.uid];
+
+    const updatedProfile: UserProfileDoc = {
+      ...existing,
+      ...studentProfile,
+      email: cleanStudentEmail,
+      teacherEmail: cleanTeacher,
+    };
+    db.profiles[studentProfile.uid] = updatedProfile;
+
+    const incomingList = Array.isArray(notifications)
+      ? notifications
+      : notification?.id
+      ? [notification]
+      : [];
+
+    if (incomingList.length > 0) {
+      for (const item of incomingList) {
+        if (item?.id && !db.teacherNotifications.some((n) => n.id === item.id)) {
+          db.teacherNotifications.push(item);
+        }
+      }
+      if (db.teacherNotifications.length > 300) {
+        db.teacherNotifications = db.teacherNotifications.slice(-300);
+      }
+    } else {
+      const parsedTeachers = parseEmailList(cleanTeacher);
+      if (parsedTeachers.length > 0) {
+        enqueueTeacherLinkNotifications(updatedProfile, parsedTeachers);
+      }
+    }
+
+    persistDb();
+    res.json({ profile: updatedProfile, sync: getSyncPayload() });
+  });
+
+  // Mark teacher link notifications seen for a user
+  app.post('/api/portal/teacher-notifications/seen', (req: Request, res: Response) => {
+    const { ids = [], uid = '' } = req.body as { ids?: string[]; uid?: string };
+    if (!uid || !Array.isArray(ids) || ids.length === 0) {
+      res.json({ ok: true });
+      return;
+    }
+    const idSet = new Set(ids);
+    db.teacherNotifications = db.teacherNotifications.map((n) => {
+      if (!idSet.has(n.id)) return n;
+      const seen = new Set(n.seenByUids ?? []);
+      seen.add(uid);
+      return { ...n, seenByUids: Array.from(seen) };
+    });
+    persistDb();
+    res.json({ ok: true, sync: getSyncPayload() });
   });
 
   // Teacher links a student by student email (finds existing student or creates pre-linked profile)
@@ -404,9 +588,13 @@ async function startServer() {
       (p) => p.email.trim().toLowerCase() === cleanStudent
     );
     if (existing) {
+      const existingTeachers = parseEmailList(existing.teacherEmail);
+      if (!existingTeachers.includes(cleanTeacher)) {
+        existingTeachers.push(cleanTeacher);
+      }
       db.profiles[existing.uid] = {
         ...existing,
-        teacherEmail: cleanTeacher,
+        teacherEmail: existingTeachers.join(', '),
       };
     } else {
       const uid = makeUidFromEmail(cleanStudent);
@@ -543,38 +731,148 @@ async function startServer() {
     res.json({ ok: true });
   });
 
-  // Creator Feedback ChatBox
+  // Creator Feedback & Two-Way Messaging Inbox (Recipient: nicolecarillo957@gmail.com)
   app.post('/api/portal/feedback', (req: Request, res: Response) => {
     const msg = req.body as Record<string, unknown>;
     if (!msg?.id || !msg?.text) {
       res.status(400).json({ error: 'Invalid feedback message.' });
       return;
     }
-    db.feedbackMessages.push({
+    const cleanSenderEmail = String(msg.senderEmail || '').trim().toLowerCase();
+    const isFromCreator = cleanSenderEmail === CREATOR_ADMIN_EMAIL.toLowerCase();
+    const savedMsg: Record<string, unknown> = {
       ...msg,
+      id: String(msg.id),
+      senderEmail: cleanSenderEmail,
       recipientEmail: CREATOR_ADMIN_EMAIL,
-    });
+      replies: Array.isArray(msg.replies) ? msg.replies : [],
+      seenByCreator: isFromCreator,
+      seenBySender: true,
+      createdAtMs: typeof msg.createdAtMs === 'number' ? msg.createdAtMs : Date.now(),
+    };
+    const existingIdx = db.feedbackMessages.findIndex((m) => String(m.id) === String(savedMsg.id));
+    if (existingIdx >= 0) {
+      db.feedbackMessages[existingIdx] = savedMsg;
+    } else {
+      db.feedbackMessages.push(savedMsg);
+    }
     persistDb();
-    res.json({ ok: true });
+    res.json({ ok: true, message: savedMsg, sync: getSyncPayload() });
   });
 
   app.post('/api/portal/feedback/reply', (req: Request, res: Response) => {
-    const { messageId, replyText, adminEmail } = req.body as {
+    const {
+      messageId,
+      replyText,
+      adminEmail,
+      senderEmail,
+      senderName,
+      senderUid,
+      isCreator,
+    } = req.body as {
       messageId?: string;
       replyText?: string;
       adminEmail?: string;
+      senderEmail?: string;
+      senderName?: string;
+      senderUid?: string;
+      isCreator?: boolean;
     };
-    if (!messageId || !replyText) {
+    const cleanText = (replyText || '').trim().slice(0, 1000);
+    if (!messageId || !cleanText) {
       res.status(400).json({ error: 'Missing messageId or replyText.' });
       return;
     }
-    db.feedbackMessages = db.feedbackMessages.map((m) =>
-      m.id === messageId
-        ? { ...m, replyText, replyByEmail: (adminEmail || CREATOR_ADMIN_EMAIL).toLowerCase() }
-        : m
-    );
+
+    const authorEmail = (senderEmail || adminEmail || CREATOR_ADMIN_EMAIL).trim().toLowerCase();
+    const creatorReply =
+      typeof isCreator === 'boolean'
+        ? isCreator
+        : authorEmail === CREATOR_ADMIN_EMAIL.toLowerCase();
+    const authorName =
+      (senderName || '').trim() ||
+      (creatorReply ? 'Creator (Nicole)' : authorEmail.split('@')[0] || 'User');
+    const now = Date.now();
+
+    const newReply = {
+      id: `fbr_${now}_${Math.random().toString(36).slice(2, 7)}`,
+      senderUid,
+      senderName: authorName,
+      senderEmail: authorEmail,
+      isCreator: creatorReply,
+      text: cleanText,
+      createdAtMs: now,
+    };
+
+    db.feedbackMessages = db.feedbackMessages.map((m) => {
+      if (String(m.id) !== String(messageId)) return m;
+      const existingReplies = Array.isArray(m.replies)
+        ? [...(m.replies as Record<string, unknown>[])]
+        : m.replyText
+        ? [
+            {
+              id: `fbr_legacy_${String(m.id)}`,
+              senderName: 'Creator',
+              senderEmail: String(m.replyByEmail || CREATOR_ADMIN_EMAIL),
+              isCreator: true,
+              text: String(m.replyText),
+              createdAtMs:
+                typeof m.replyAtMs === 'number'
+                  ? m.replyAtMs
+                  : typeof m.createdAtMs === 'number'
+                  ? m.createdAtMs + 1
+                  : now - 1,
+            },
+          ]
+        : [];
+      existingReplies.push(newReply);
+
+      return {
+        ...m,
+        replies: existingReplies,
+        ...(creatorReply
+          ? {
+              replyText: cleanText,
+              replyByEmail: authorEmail,
+              replyAtMs: now,
+              seenByCreator: true,
+              seenBySender: false,
+            }
+          : {
+              seenByCreator: false,
+              seenBySender: true,
+            }),
+      };
+    });
     persistDb();
-    res.json({ ok: true });
+    res.json({ ok: true, reply: newReply, sync: getSyncPayload() });
+  });
+
+  app.post('/api/portal/feedback/seen', (req: Request, res: Response) => {
+    const { messageIds = [], viewerEmail = '' } = req.body as {
+      messageIds?: string[];
+      viewerEmail?: string;
+    };
+    const cleanViewer = viewerEmail.trim().toLowerCase();
+    if (!cleanViewer || !Array.isArray(messageIds) || messageIds.length === 0) {
+      res.json({ ok: true });
+      return;
+    }
+    const idSet = new Set(messageIds.map(String));
+    const viewerIsCreator = cleanViewer === CREATOR_ADMIN_EMAIL.toLowerCase();
+
+    db.feedbackMessages = db.feedbackMessages.map((m) => {
+      if (!idSet.has(String(m.id))) return m;
+      if (viewerIsCreator) {
+        return { ...m, seenByCreator: true };
+      }
+      if (String(m.senderEmail || '').trim().toLowerCase() === cleanViewer) {
+        return { ...m, seenBySender: true };
+      }
+      return m;
+    });
+    persistDb();
+    res.json({ ok: true, sync: getSyncPayload() });
   });
 
   // Mount Vite middleware in dev or serve built assets in production

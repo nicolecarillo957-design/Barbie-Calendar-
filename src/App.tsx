@@ -14,6 +14,7 @@ import {
   CalendarEvent,
   CalendarViewType,
   EventCategory,
+  FeedbackMessage,
   UnscheduledTask,
   TaskEvidence,
   StudentStreakData,
@@ -39,13 +40,16 @@ import {
   deleteTask,
   ensureUserProfile,
   linkStudentEmailByTeacher,
+  markTeacherNotificationsSeen,
   saveEvent,
   saveTask,
   signOutUser,
   subscribeAuthState,
   subscribeEvents,
+  subscribeFeedbackMessages,
   subscribeMonitoredStudents,
   subscribeTasks,
+  subscribeTeacherLinkNotifications,
   subscribeUserProfile,
   syncPortalNow,
   syncUserProfile,
@@ -300,6 +304,8 @@ export default function App() {
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [isTeacherMonitorOpen, setIsTeacherMonitorOpen] = useState(false);
   const [isTeacherSummaryOpen, setIsTeacherSummaryOpen] = useState(false);
+  const [isFeedbackChatOpen, setIsFeedbackChatOpen] = useState(false);
+  const [unreadFeedbackCount, setUnreadFeedbackCount] = useState(0);
   const [copiedTeacherGmailBanner, setCopiedTeacherGmailBanner] = useState(false);
   const [teacherBannerStudentEmail, setTeacherBannerStudentEmail] = useState('');
   const [teacherBannerLinkMsg, setTeacherBannerLinkMsg] = useState('');
@@ -384,6 +390,97 @@ export default function App() {
     },
     []
   );
+
+  // Instant Teacher Notification Listener (triggers immediately whenever a student links your Gmail)
+  const notifiedLinkIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (authLoading || !currentUser?.email || !currentUser?.uid) return;
+
+    const unsubscribe = subscribeTeacherLinkNotifications(
+      currentUser.email,
+      currentUser.uid,
+      (pending) => {
+        const fresh = pending.filter((n) => !notifiedLinkIdsRef.current.has(n.id));
+        if (fresh.length === 0) return;
+        fresh.forEach((n) => {
+          notifiedLinkIdsRef.current.add(n.id);
+          triggerNotification({
+            title: `New Student Linked: ${n.studentName} 👩‍🏫💖`,
+            message: `${n.studentName} (${n.studentEmail}) linked your teacher Gmail! You can now monitor their calendar, tasks, and picture proofs.`,
+            type: 'celebration',
+          });
+        });
+        void markTeacherNotificationsSeen(
+          fresh.map((n) => n.id),
+          currentUser.uid
+        );
+      }
+    );
+
+    return () => unsubscribe();
+  }, [authLoading, currentUser?.email, currentUser?.uid, triggerNotification]);
+
+  // Instant Two-Way Feedback & Creator Inbox Notification Listener
+  const notifiedFeedbackEventKeysRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (authLoading || !currentUser?.email) {
+      setUnreadFeedbackCount(0);
+      return;
+    }
+
+    const unsubscribe = subscribeFeedbackMessages(
+      currentUser,
+      isCreatorAdmin,
+      (list: FeedbackMessage[]) => {
+        if (isCreatorAdmin) {
+          const unreadMsgs = list.filter(
+            (m) => m.seenByCreator === false || (m.seenByCreator === undefined && !m.replyText)
+          );
+          setUnreadFeedbackCount(unreadMsgs.length);
+
+          unreadMsgs.forEach((m) => {
+            if ((m.senderEmail || '').trim().toLowerCase() === CREATOR_ADMIN_EMAIL.toLowerCase()) {
+              return;
+            }
+            const latestReplyCount = Array.isArray(m.replies) ? m.replies.length : 0;
+            const notifyKey = `creator_${m.id}_${latestReplyCount}`;
+            if (!notifiedFeedbackEventKeysRef.current.has(notifyKey)) {
+              notifiedFeedbackEventKeysRef.current.add(notifyKey);
+              triggerNotification({
+                title: `New Message from ${m.senderName} 💬💖`,
+                message: `From ${m.senderEmail}: "${m.text.slice(0, 110)}${m.text.length > 110 ? '...' : ''}"`,
+                type: 'celebration',
+              });
+            }
+          });
+        } else {
+          const unreadReplies = list.filter((m) => m.seenBySender === false);
+          setUnreadFeedbackCount(unreadReplies.length);
+
+          unreadReplies.forEach((m) => {
+            const replyCount = Array.isArray(m.replies) ? m.replies.length : m.replyText ? 1 : 0;
+            const notifyKey = `user_${m.id}_${replyCount}`;
+            if (!notifiedFeedbackEventKeysRef.current.has(notifyKey)) {
+              notifiedFeedbackEventKeysRef.current.add(notifyKey);
+              const latestText =
+                (Array.isArray(m.replies) && m.replies.length > 0
+                  ? m.replies[m.replies.length - 1].text
+                  : m.replyText) || '';
+              triggerNotification({
+                title: `Reply from Creator (${CREATOR_ADMIN_EMAIL}) 💖`,
+                message: latestText.slice(0, 130) + (latestText.length > 130 ? '...' : ''),
+                type: 'celebration',
+              });
+            }
+          });
+        }
+      }
+    );
+
+    return () => unsubscribe();
+  }, [authLoading, currentUser, isCreatorAdmin, triggerNotification]);
 
   const notifyReadOnlyMonitoring = useCallback(() => {
     triggerNotification({
@@ -957,8 +1054,15 @@ export default function App() {
         streakData,
         studentName
       );
+      if (cleaned) {
+        triggerNotification({
+          title: 'Teacher Gmail Linked! 👩‍🏫✨',
+          message: `We notified ${cleaned} right away so they can monitor your calendar and reward progress.`,
+          type: 'celebration',
+        });
+      }
     },
-    [currentUser, events, tasks, streakData, studentName]
+    [currentUser, events, tasks, streakData, studentName, triggerNotification]
   );
 
   // Settings Reset & Import
@@ -997,7 +1101,8 @@ export default function App() {
         isNotificationCenterOpen ||
         isCalmModalOpen ||
         isTaskInboxOpen ||
-        isTeacherMonitorOpen
+        isTeacherMonitorOpen ||
+        isFeedbackChatOpen
       ) {
         if (e.key === 'Escape') {
           setIsEventModalOpen(false);
@@ -1008,6 +1113,7 @@ export default function App() {
           setIsCalmModalOpen(false);
           setIsTaskInboxOpen(false);
           setIsTeacherMonitorOpen(false);
+          setIsFeedbackChatOpen(false);
         }
         return;
       }
@@ -1196,6 +1302,8 @@ export default function App() {
         onOpenShortcuts={() => setIsShortcutsOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenNotifications={() => setIsNotificationCenterOpen(true)}
+        onOpenMessages={() => setIsFeedbackChatOpen((prev) => !prev)}
+        unreadMessageCount={unreadFeedbackCount}
         onOpenCalmSanctuary={() => setIsCalmModalOpen(true)}
         onOpenInbox={() => setIsTaskInboxOpen(true)}
         pendingTaskCount={tasks.filter((t) => !t.completed).length}
@@ -1797,8 +1905,12 @@ export default function App() {
         currentDate={currentDate}
       />
 
-      {/* 9. Direct User Feedback Chat Box -> Creator Admin */}
-      <FeedbackChatBox currentUser={currentUser} />
+      {/* 9. Direct User Message & Feedback Inbox -> Creator Admin (nicolecarillo957@gmail.com) */}
+      <FeedbackChatBox
+        currentUser={currentUser}
+        isOpen={isFeedbackChatOpen}
+        onOpenChange={setIsFeedbackChatOpen}
+      />
     </div>
   );
 }

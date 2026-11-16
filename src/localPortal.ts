@@ -2,8 +2,10 @@ import {
   CalendarEvent,
   FeedbackCategory,
   FeedbackMessage,
+  FeedbackReply,
   StudentStreakData,
   TaskEvidence,
+  TeacherLinkNotification,
   UnscheduledTask,
   UserProfileDoc,
   UserRole,
@@ -31,6 +33,7 @@ interface PortalStoreState {
   eventsByUid: Record<string, CalendarEvent[]>;
   tasksByUid: Record<string, UnscheduledTask[]>;
   feedbackMessages: FeedbackMessage[];
+  teacherNotifications: TeacherLinkNotification[];
 }
 
 const DEFAULT_STORE: PortalStoreState = {
@@ -40,6 +43,7 @@ const DEFAULT_STORE: PortalStoreState = {
   eventsByUid: {},
   tasksByUid: {},
   feedbackMessages: [],
+  teacherNotifications: [],
 };
 
 type StoreListener = () => void;
@@ -47,7 +51,21 @@ const listeners = new Set<StoreListener>();
 let lastRemoteDigest = '';
 let hasMergedInitialLocal = false;
 let syncInFlight: Promise<void> | null = null;
+let pendingResync = false;
 let syncPollerStarted = false;
+
+function parseEmailList(raw?: string): string[] {
+  if (!raw) return [];
+  return Array.from(
+    new Set(
+      raw
+        .toLowerCase()
+        .split(/[\s,;]+/)
+        .map((s) => s.trim())
+        .filter((s) => s.includes('@'))
+    )
+  );
+}
 
 function loadStore(): PortalStoreState {
   try {
@@ -61,6 +79,9 @@ function loadStore(): PortalStoreState {
       eventsByUid: parsed.eventsByUid ?? {},
       tasksByUid: parsed.tasksByUid ?? {},
       feedbackMessages: Array.isArray(parsed.feedbackMessages) ? parsed.feedbackMessages : [],
+      teacherNotifications: Array.isArray(parsed.teacherNotifications)
+        ? parsed.teacherNotifications
+        : [],
     };
   } catch {
     return { ...DEFAULT_STORE };
@@ -83,6 +104,31 @@ function applyServerSyncPayload(payload: Partial<PortalStoreState>): void {
   lastRemoteDigest = digest;
 
   const local = loadStore();
+  const localSeenMap = new Map<string, string[]>();
+  local.teacherNotifications.forEach((n) => {
+    if (n.seenByUids && n.seenByUids.length > 0) {
+      localSeenMap.set(n.id, n.seenByUids);
+    }
+  });
+
+  const remoteNotifs = Array.isArray(payload.teacherNotifications)
+    ? payload.teacherNotifications
+    : [];
+  const remoteIds = new Set(remoteNotifs.map((n) => n.id));
+  const mergedNotifs: TeacherLinkNotification[] = remoteNotifs.map((n) => {
+    const localSeen = localSeenMap.get(n.id) ?? [];
+    if (localSeen.length === 0) return n;
+    const unionSeen = Array.from(new Set([...(n.seenByUids ?? []), ...localSeen]));
+    return { ...n, seenByUids: unionSeen };
+  });
+
+  const cutoffMs = Date.now() - 15000;
+  local.teacherNotifications.forEach((n) => {
+    if (!remoteIds.has(n.id) && (n.createdAtMs || 0) >= cutoffMs) {
+      mergedNotifs.push(n);
+    }
+  });
+
   const next: PortalStoreState = {
     currentUid: local.currentUid,
     accounts: { ...local.accounts, ...(payload.accounts ?? {}) },
@@ -92,6 +138,7 @@ function applyServerSyncPayload(payload: Partial<PortalStoreState>): void {
     feedbackMessages: Array.isArray(payload.feedbackMessages)
       ? payload.feedbackMessages
       : local.feedbackMessages,
+    teacherNotifications: mergedNotifs,
   };
   saveStore(next);
 }
@@ -118,7 +165,10 @@ async function postJson<T = unknown>(url: string, body: unknown): Promise<T | nu
 }
 
 export async function syncPortalNow(): Promise<void> {
-  if (syncInFlight) return syncInFlight;
+  if (syncInFlight) {
+    pendingResync = true;
+    return syncInFlight;
+  }
   syncInFlight = (async () => {
     try {
       if (!hasMergedInitialLocal) {
@@ -133,6 +183,7 @@ export async function syncPortalNow(): Promise<void> {
             eventsByUid: local.eventsByUid,
             tasksByUid: local.tasksByUid,
             feedbackMessages: local.feedbackMessages,
+            teacherNotifications: local.teacherNotifications,
           }),
         });
         if (res.ok) {
@@ -151,6 +202,10 @@ export async function syncPortalNow(): Promise<void> {
       // Backend optional fallback: continue with localStorage smoothly
     } finally {
       syncInFlight = null;
+      if (pendingResync) {
+        pendingResync = false;
+        void syncPortalNow();
+      }
     }
   })();
   return syncInFlight;
@@ -161,11 +216,25 @@ function ensureSyncPoller(): void {
   syncPollerStarted = true;
   void syncPortalNow();
 
+  if (typeof EventSource !== 'undefined') {
+    try {
+      const es = new EventSource('/api/portal/stream');
+      es.addEventListener('sync', () => {
+        void syncPortalNow();
+      });
+      es.onmessage = () => {
+        void syncPortalNow();
+      };
+    } catch {
+      // Ignore if SSE unavailable; fallback poller below still handles sync
+    }
+  }
+
   window.setInterval(() => {
     if (document.visibilityState === 'visible') {
       void syncPortalNow();
     }
-  }, 3000);
+  }, 2500);
 
   window.addEventListener('focus', () => {
     void syncPortalNow();
@@ -482,6 +551,23 @@ export async function syncUserProfile(
       : existing?.historyDates ?? [],
   };
 
+  const prevTeachers = new Set(parseEmailList(existing?.teacherEmail));
+  const newlyAddedTeachers = parseEmailList(nextProfile.teacherEmail).filter(
+    (t) => !prevTeachers.has(t) && t !== nextProfile.email
+  );
+  if (newlyAddedTeachers.length > 0) {
+    const newNotifs: TeacherLinkNotification[] = newlyAddedTeachers.map((tEmail) => ({
+      id: `tlink_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      teacherEmail: tEmail,
+      studentUid: user.uid,
+      studentName: cleanName,
+      studentEmail: nextProfile.email,
+      createdAtMs: Date.now(),
+      seenByUids: [],
+    }));
+    store.teacherNotifications = [...store.teacherNotifications, ...newNotifs].slice(-300);
+  }
+
   store.profiles[user.uid] = nextProfile;
   if (store.accounts[user.uid]) {
     store.accounts[user.uid].user.displayName = cleanName;
@@ -516,7 +602,97 @@ export async function updateAssignedTeacherEmail(
   if (normalized && !normalized.includes('@')) {
     throw new Error('Please enter a valid teacher Gmail address.');
   }
-  await syncUserProfile(user, streakData, studentName, normalized);
+
+  const store = loadStore();
+  const existing = store.profiles[user.uid];
+  const cleanName =
+    (studentName || existing?.displayName || user.displayName || user.email.split('@')[0] || 'Student')
+      .trim()
+      .slice(0, 120) || 'Student';
+  const cleanStudentEmail = user.email.toLowerCase();
+
+  const nextProfile: UserProfileDoc = {
+    uid: user.uid,
+    email: cleanStudentEmail,
+    displayName: cleanName,
+    photoURL: user.photoURL ?? existing?.photoURL,
+    role: existing?.role ?? 'student',
+    teacherEmail: normalized,
+    currentStreak: Math.max(0, Math.round(streakData.currentStreak ?? existing?.currentStreak ?? 0)),
+    bestStreak: Math.max(0, Math.round(streakData.bestStreak ?? existing?.bestStreak ?? 0)),
+    totalPoints: Math.max(0, Math.round(streakData.totalPoints ?? existing?.totalPoints ?? 0)),
+    lastActiveDate: streakData.lastActiveDate ?? existing?.lastActiveDate,
+    historyDates: Array.isArray(streakData.historyDates)
+      ? streakData.historyDates
+      : existing?.historyDates ?? [],
+  };
+
+  const parsedTeachers = parseEmailList(normalized).filter((t) => t !== cleanStudentEmail);
+  const newNotifs: TeacherLinkNotification[] = parsedTeachers.map((tEmail) => ({
+    id: `tlink_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    teacherEmail: tEmail,
+    studentUid: user.uid,
+    studentName: cleanName,
+    studentEmail: cleanStudentEmail,
+    createdAtMs: Date.now(),
+    seenByUids: [],
+  }));
+
+  store.profiles[user.uid] = nextProfile;
+  if (newNotifs.length > 0) {
+    store.teacherNotifications = [...store.teacherNotifications, ...newNotifs].slice(-300);
+  }
+  saveStore(store);
+
+  const serverRes = await postJson<{ sync?: Partial<PortalStoreState> }>(
+    '/api/portal/link-teacher',
+    {
+      studentProfile: nextProfile,
+      teacherEmail: normalized,
+      notification: newNotifs[0],
+      notifications: newNotifs,
+    }
+  );
+  if (serverRes?.sync) applyServerSyncPayload(serverRes.sync);
+}
+
+export function subscribeTeacherLinkNotifications(
+  userEmail: string | undefined,
+  currentUid: string | undefined,
+  onNewLinks: (notifications: TeacherLinkNotification[]) => void
+): () => void {
+  const cleanEmail = (userEmail || '').trim().toLowerCase();
+  const emit = () => {
+    if (!cleanEmail || !currentUid) return;
+    const store = loadStore();
+    const pending = store.teacherNotifications
+      .filter(
+        (n) =>
+          n.teacherEmail.trim().toLowerCase() === cleanEmail &&
+          n.studentUid !== currentUid &&
+          !(n.seenByUids ?? []).includes(currentUid)
+      )
+      .sort((a, b) => (a.createdAtMs || 0) - (b.createdAtMs || 0));
+    if (pending.length > 0) {
+      onNewLinks(pending);
+    }
+  };
+  emit();
+  return subscribeStore(emit);
+}
+
+export async function markTeacherNotificationsSeen(ids: string[], uid: string): Promise<void> {
+  if (!uid || ids.length === 0) return;
+  const idSet = new Set(ids);
+  const store = loadStore();
+  store.teacherNotifications = store.teacherNotifications.map((n) => {
+    if (!idSet.has(n.id)) return n;
+    const seen = new Set(n.seenByUids ?? []);
+    seen.add(uid);
+    return { ...n, seenByUids: Array.from(seen) };
+  });
+  saveStore(store);
+  await postJson('/api/portal/teacher-notifications/seen', { ids, uid });
 }
 
 export async function linkStudentEmailByTeacher(
@@ -750,10 +926,17 @@ export function subscribeFeedbackMessages(
   isCreator: boolean,
   onChange: (messages: FeedbackMessage[]) => void
 ): () => void {
+  const myEmail = (currentUser.email || '').trim().toLowerCase();
+  const creatorMode = isCreator || myEmail === CREATOR_ADMIN_EMAIL.toLowerCase();
   const emit = () => {
     const store = loadStore();
     const list = store.feedbackMessages
-      .filter((m) => isCreator || m.senderUid === currentUser.uid)
+      .filter(
+        (m) =>
+          creatorMode ||
+          m.senderUid === currentUser.uid ||
+          (myEmail && (m.senderEmail || '').trim().toLowerCase() === myEmail)
+      )
       .sort((a, b) => (a.createdAtMs || 0) - (b.createdAtMs || 0));
     onChange(list);
   };
@@ -768,36 +951,148 @@ export async function sendFeedbackMessage(
 ): Promise<void> {
   const cleanText = text.trim().slice(0, 1000);
   if (!cleanText) return;
+  const cleanEmail = user.email.trim().toLowerCase();
+  const isFromCreator = cleanEmail === CREATOR_ADMIN_EMAIL.toLowerCase();
   const store = loadStore();
   const msg: FeedbackMessage = {
     id: `fb_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     senderUid: user.uid,
-    senderName: user.displayName || user.email.split('@')[0] || 'User',
-    senderEmail: user.email.toLowerCase(),
+    senderName: user.displayName || cleanEmail.split('@')[0] || 'User',
+    senderEmail: cleanEmail,
     senderPhotoUrl: user.photoURL,
     recipientEmail: CREATOR_ADMIN_EMAIL,
     category,
     text: cleanText,
+    replies: [],
+    seenByCreator: isFromCreator,
+    seenBySender: true,
     createdAtMs: Date.now(),
   };
   store.feedbackMessages = [...store.feedbackMessages, msg];
   saveStore(store);
-  await postJson('/api/portal/feedback', msg);
+  const res = await postJson<{ sync?: Partial<PortalStoreState> }>('/api/portal/feedback', msg);
+  if (res?.sync) applyServerSyncPayload(res.sync);
 }
 
 export async function replyToFeedbackMessage(
   messageId: string,
   replyText: string,
-  adminEmail: string
+  authorEmail: string,
+  opts?: {
+    senderName?: string;
+    senderUid?: string;
+    isCreator?: boolean;
+  }
 ): Promise<void> {
   const cleanReply = replyText.trim().slice(0, 1000);
   if (!cleanReply) return;
+
+  const cleanAuthorEmail = authorEmail.trim().toLowerCase();
+  const isCreator =
+    typeof opts?.isCreator === 'boolean'
+      ? opts.isCreator
+      : cleanAuthorEmail === CREATOR_ADMIN_EMAIL.toLowerCase();
+  const authorName =
+    (opts?.senderName || '').trim() ||
+    (isCreator ? 'Creator (Nicole)' : cleanAuthorEmail.split('@')[0] || 'User');
+  const now = Date.now();
+
+  const newReply: FeedbackReply = {
+    id: `fbr_${now}_${Math.random().toString(36).slice(2, 7)}`,
+    senderUid: opts?.senderUid,
+    senderName: authorName,
+    senderEmail: cleanAuthorEmail,
+    isCreator,
+    text: cleanReply,
+    createdAtMs: now,
+  };
+
   const store = loadStore();
-  store.feedbackMessages = store.feedbackMessages.map((m) =>
-    m.id === messageId
-      ? { ...m, replyText: cleanReply, replyByEmail: adminEmail.toLowerCase() }
-      : m
-  );
+  store.feedbackMessages = store.feedbackMessages.map((m) => {
+    if (m.id !== messageId) return m;
+    const existingReplies: FeedbackReply[] = Array.isArray(m.replies)
+      ? [...m.replies]
+      : m.replyText
+      ? [
+          {
+            id: `fbr_legacy_${m.id}`,
+            senderName: 'Creator',
+            senderEmail: m.replyByEmail || CREATOR_ADMIN_EMAIL,
+            isCreator: true,
+            text: m.replyText,
+            createdAtMs: m.replyAtMs || m.createdAtMs || now - 1,
+          },
+        ]
+      : [];
+
+    existingReplies.push(newReply);
+
+    return {
+      ...m,
+      replies: existingReplies,
+      ...(isCreator
+        ? {
+            replyText: cleanReply,
+            replyByEmail: cleanAuthorEmail,
+            replyAtMs: now,
+            seenByCreator: true,
+            seenBySender: false,
+          }
+        : {
+            seenByCreator: false,
+            seenBySender: true,
+          }),
+    };
+  });
   saveStore(store);
-  await postJson('/api/portal/feedback/reply', { messageId, replyText: cleanReply, adminEmail });
+
+  const res = await postJson<{ sync?: Partial<PortalStoreState> }>('/api/portal/feedback/reply', {
+    messageId,
+    replyText: cleanReply,
+    adminEmail: isCreator ? cleanAuthorEmail : undefined,
+    senderEmail: cleanAuthorEmail,
+    senderName: authorName,
+    senderUid: opts?.senderUid,
+    isCreator,
+  });
+  if (res?.sync) applyServerSyncPayload(res.sync);
+}
+
+export async function markFeedbackMessagesSeen(
+  messageIds: string[],
+  viewerEmail: string
+): Promise<void> {
+  const cleanViewer = viewerEmail.trim().toLowerCase();
+  if (!cleanViewer || messageIds.length === 0) return;
+
+  const idSet = new Set(messageIds);
+  const viewerIsCreator = cleanViewer === CREATOR_ADMIN_EMAIL.toLowerCase();
+  let changed = false;
+
+  const store = loadStore();
+  store.feedbackMessages = store.feedbackMessages.map((m) => {
+    if (!idSet.has(m.id)) return m;
+    if (viewerIsCreator && m.seenByCreator !== true) {
+      changed = true;
+      return { ...m, seenByCreator: true };
+    }
+    if (
+      !viewerIsCreator &&
+      (m.senderEmail || '').trim().toLowerCase() === cleanViewer &&
+      m.seenBySender === false
+    ) {
+      changed = true;
+      return { ...m, seenBySender: true };
+    }
+    return m;
+  });
+
+  if (changed) {
+    saveStore(store);
+    const res = await postJson<{ sync?: Partial<PortalStoreState> }>('/api/portal/feedback/seen', {
+      messageIds,
+      viewerEmail: cleanViewer,
+    });
+    if (res?.sync) applyServerSyncPayload(res.sync);
+  }
 }

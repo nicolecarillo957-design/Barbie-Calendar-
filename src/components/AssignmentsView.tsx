@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CalendarEvent,
   EventCategory,
@@ -182,6 +182,10 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
   // Proof inspection preview modal
   const [proofPreviewItem, setProofPreviewItem] = useState<UnifiedAssignment | null>(null);
 
+  // Micro-interaction animation for newly completed assignments
+  const prevCompletedMapRef = useRef<Map<string, boolean> | null>(null);
+  const [justCompletedKeys, setJustCompletedKeys] = useState<Set<string>>(() => new Set());
+
   // Combine Unscheduled Tasks & Scheduled Calendar Events into one clean Assignments list
   const unifiedAssignments = useMemo<UnifiedAssignment[]>(() => {
     const scheduledTaskIds = new Set(
@@ -241,6 +245,42 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
 
     return [...taskItems, ...eventItems];
   }, [tasks, events]);
+
+  useEffect(() => {
+    const nextMap = new Map<string, boolean>();
+    const newlyCompleted: string[] = [];
+
+    unifiedAssignments.forEach((item) => {
+      nextMap.set(item.key, item.completed);
+      if (prevCompletedMapRef.current) {
+        const wasCompleted = prevCompletedMapRef.current.get(item.key);
+        if (wasCompleted === false && item.completed) {
+          newlyCompleted.push(item.key);
+        }
+      }
+    });
+
+    prevCompletedMapRef.current = nextMap;
+
+    if (newlyCompleted.length > 0) {
+      cuteSound.playSparkle();
+      setJustCompletedKeys((prev) => {
+        const next = new Set(prev);
+        newlyCompleted.forEach((k) => next.add(k));
+        return next;
+      });
+
+      const timer = window.setTimeout(() => {
+        setJustCompletedKeys((prev) => {
+          const next = new Set(prev);
+          newlyCompleted.forEach((k) => next.delete(k));
+          return next;
+        });
+      }, 1700);
+
+      return () => window.clearTimeout(timer);
+    }
+  }, [unifiedAssignments]);
 
   const availableSubjects = useMemo(() => {
     const set = new Set<string>();
@@ -874,6 +914,7 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
 
               const isDraggingThis = draggedKey === item.key;
               const isDropTarget = dragOverKey === item.key && draggedKey !== item.key;
+              const isCelebratingCompletion = justCompletedKeys.has(item.key);
 
               return (
                 <article
@@ -912,8 +953,10 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
                     setDragOverKey(null);
                     setDragOverPriority(null);
                   }}
-                  className={`bg-white rounded-2xl border transition-all p-4 sm:p-5 shadow-2xs hover:shadow-md ${
-                    isDraggingThis
+                  className={`relative bg-white rounded-2xl border transition-all p-4 sm:p-5 shadow-2xs hover:shadow-md ${
+                    isCelebratingCompletion
+                      ? 'animate-task-complete border-emerald-400 ring-2 ring-emerald-300 bg-gradient-to-r from-emerald-50/75 via-white to-pink-50/75 shadow-lg shadow-emerald-200/60'
+                      : isDraggingThis
                       ? 'opacity-50 scale-[0.98] border-pink-400 ring-2 ring-pink-300 cursor-grabbing'
                       : isDropTarget
                       ? 'border-pink-500 ring-2 ring-pink-400 bg-pink-50/40 -translate-y-0.5 shadow-md'
@@ -924,6 +967,35 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
                       : 'border-pink-200/90 hover:border-pink-300'
                   }`}
                 >
+                  {/* Shimmer sweep & Floating Sparkles Burst on Task Completion */}
+                  {isCelebratingCompletion && (
+                    <>
+                      <div
+                        className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl z-0"
+                        aria-hidden="true"
+                      >
+                        <div className="animate-completion-shimmer absolute inset-y-0 left-0 w-1/2 bg-gradient-to-r from-transparent via-emerald-200/50 to-transparent" />
+                      </div>
+                      <div
+                        className="pointer-events-none absolute inset-0 overflow-visible z-10"
+                        aria-hidden="true"
+                      >
+                        <span className="animate-sparkle-a absolute -top-2 left-5 text-base">
+                          ✨
+                        </span>
+                        <span className="animate-sparkle-c absolute -top-3 left-1/3 text-sm">
+                          🌟
+                        </span>
+                        <span className="animate-sparkle-b absolute -top-2 right-12 text-base">
+                          💖
+                        </span>
+                        <span className="animate-sparkle-a absolute bottom-2 right-6 text-sm">
+                          ✨
+                        </span>
+                      </div>
+                    </>
+                  )}
+
                   {/* Row 1: Drag Handle + Subject Tag (left) + Priority Tag (right) */}
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -1012,7 +1084,9 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
                       aria-label={item.completed ? 'Mark assignment pending' : 'Complete assignment'}
                       className={`mt-0.5 w-6 h-6 rounded-lg border-2 flex items-center justify-center shrink-0 transition-all ${
                         item.completed
-                          ? 'bg-emerald-500 border-emerald-500 text-white shadow-2xs'
+                          ? `bg-emerald-500 border-emerald-500 text-white shadow-2xs ${
+                              isCelebratingCompletion ? 'animate-check-pop' : ''
+                            }`
                           : readOnly
                           ? 'border-pink-200 bg-pink-50/40 cursor-not-allowed'
                           : 'border-pink-300 bg-white hover:border-pink-500 hover:bg-pink-50 active:scale-95'
@@ -1023,13 +1097,18 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
 
                     <div className="flex-1 min-w-0">
                       <h3
-                        className={`text-sm sm:text-base font-extrabold leading-snug ${
+                        className={`text-sm sm:text-base font-extrabold leading-snug flex items-center gap-2 flex-wrap ${
                           item.completed
                             ? 'line-through text-pink-900/50 decoration-2'
                             : 'text-pink-950'
                         }`}
                       >
-                        {item.title}
+                        <span>{item.title}</span>
+                        {isCelebratingCompletion && (
+                          <span className="no-underline inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500 text-white text-[10px] font-black shadow-xs animate-bounce">
+                            Done! ✨
+                          </span>
+                        )}
                       </h3>
 
                       {item.description ? (
