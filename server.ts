@@ -1,8 +1,10 @@
 import express from 'express';
 import type { Request, Response } from 'express';
+import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { WebSocketServer, WebSocket } from 'ws';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -131,14 +133,30 @@ function loadDb(): PortalDb {
 
 let db: PortalDb = loadDb();
 const sseClients = new Set<Response>();
+const wsClients = new Set<WebSocket>();
 
 function broadcastSync(): void {
-  const payload = `event: sync\ndata: ${Date.now()}\n\n`;
+  const ssePayload = `event: sync\ndata: ${Date.now()}\n\n`;
   for (const client of sseClients) {
     try {
-      client.write(payload);
+      client.write(ssePayload);
     } catch {
       sseClients.delete(client);
+    }
+  }
+
+  if (wsClients.size > 0) {
+    const wsPayload = JSON.stringify({ type: 'sync', sync: getSyncPayload() });
+    for (const ws of wsClients) {
+      try {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(wsPayload);
+        } else if (ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+          wsClients.delete(ws);
+        }
+      } catch {
+        wsClients.delete(ws);
+      }
     }
   }
 }
@@ -153,6 +171,165 @@ function persistDb(): void {
     console.error('Failed persisting portal-db.json:', err);
   }
   broadcastSync();
+}
+
+function upsertFeedbackMessageRecord(msg: Record<string, unknown>): Record<string, unknown> {
+  const cleanSenderEmail = String(msg.senderEmail || '').trim().toLowerCase();
+  const isFromCreator = cleanSenderEmail === CREATOR_ADMIN_EMAIL.toLowerCase();
+  const requestedRecipient = String(msg.recipientEmail || '').trim().toLowerCase();
+  const cleanRecipientEmail = isFromCreator
+    ? requestedRecipient || CREATOR_ADMIN_EMAIL
+    : CREATOR_ADMIN_EMAIL;
+
+  const incomingReplies = Array.isArray(msg.replies) ? msg.replies : [];
+  const existingIdx = db.feedbackMessages.findIndex((m) => String(m.id) === String(msg.id));
+  const existing = existingIdx >= 0 ? db.feedbackMessages[existingIdx] : undefined;
+  const existingReplies = Array.isArray(existing?.replies)
+    ? (existing.replies as Record<string, unknown>[])
+    : [];
+
+  // Idempotent union of replies by id
+  const replyMap = new Map<string, Record<string, unknown>>();
+  for (const r of existingReplies) {
+    if (r && r.id) replyMap.set(String(r.id), r);
+  }
+  for (const r of incomingReplies as Record<string, unknown>[]) {
+    if (r && r.id && !replyMap.has(String(r.id))) {
+      replyMap.set(String(r.id), r);
+    }
+  }
+  const mergedReplies = Array.from(replyMap.values()).sort(
+    (a, b) => Number(a.createdAtMs || 0) - Number(b.createdAtMs || 0)
+  );
+
+  const savedMsg: Record<string, unknown> = {
+    ...existing,
+    ...msg,
+    id: String(msg.id),
+    senderEmail: cleanSenderEmail,
+    recipientEmail: cleanRecipientEmail,
+    replies: mergedReplies,
+    seenByCreator: existing ? Boolean(existing.seenByCreator) : isFromCreator,
+    seenBySender: existing ? Boolean(existing.seenBySender) : !isFromCreator,
+    createdAtMs:
+      typeof msg.createdAtMs === 'number'
+        ? msg.createdAtMs
+        : typeof existing?.createdAtMs === 'number'
+        ? existing.createdAtMs
+        : Date.now(),
+  };
+
+  if (existingIdx >= 0) {
+    db.feedbackMessages[existingIdx] = savedMsg;
+  } else {
+    db.feedbackMessages.push(savedMsg);
+  }
+  return savedMsg;
+}
+
+function appendFeedbackReplyRecord(params: {
+  messageId?: string;
+  replyId?: string;
+  replyText?: string;
+  adminEmail?: string;
+  senderEmail?: string;
+  senderName?: string;
+  senderUid?: string;
+  isCreator?: boolean;
+  createdAtMs?: number;
+}) {
+  const cleanText = (params.replyText || '').trim().slice(0, 1000);
+  if (!params.messageId || !cleanText) return null;
+
+  const authorEmail = (params.senderEmail || params.adminEmail || CREATOR_ADMIN_EMAIL)
+    .trim()
+    .toLowerCase();
+  const creatorReply =
+    typeof params.isCreator === 'boolean'
+      ? params.isCreator
+      : authorEmail === CREATOR_ADMIN_EMAIL.toLowerCase();
+  const authorName =
+    (params.senderName || '').trim() ||
+    (creatorReply ? 'Creator (Nicole)' : authorEmail.split('@')[0] || 'User');
+  const now = typeof params.createdAtMs === 'number' ? params.createdAtMs : Date.now();
+  const replyId =
+    params.replyId || `fbr_${now}_${Math.random().toString(36).slice(2, 7)}`;
+
+  const newReply = {
+    id: replyId,
+    senderUid: params.senderUid,
+    senderName: authorName,
+    senderEmail: authorEmail,
+    isCreator: creatorReply,
+    text: cleanText,
+    createdAtMs: now,
+  };
+
+  db.feedbackMessages = db.feedbackMessages.map((m) => {
+    if (String(m.id) !== String(params.messageId)) return m;
+    const existingReplies = Array.isArray(m.replies)
+      ? [...(m.replies as Record<string, unknown>[])]
+      : m.replyText
+      ? [
+          {
+            id: `fbr_legacy_${String(m.id)}`,
+            senderName: 'Creator',
+            senderEmail: String(m.replyByEmail || CREATOR_ADMIN_EMAIL),
+            isCreator: true,
+            text: String(m.replyText),
+            createdAtMs:
+              typeof m.replyAtMs === 'number'
+                ? m.replyAtMs
+                : typeof m.createdAtMs === 'number'
+                ? m.createdAtMs + 1
+                : now - 1,
+          },
+        ]
+      : [];
+
+    if (!existingReplies.some((r) => String(r.id) === replyId)) {
+      existingReplies.push(newReply);
+    }
+
+    return {
+      ...m,
+      replies: existingReplies,
+      ...(creatorReply
+        ? {
+            replyText: cleanText,
+            replyByEmail: authorEmail,
+            replyAtMs: now,
+            seenByCreator: true,
+            seenBySender: false,
+          }
+        : {
+            seenByCreator: false,
+            seenBySender: true,
+          }),
+    };
+  });
+
+  return newReply;
+}
+
+function markFeedbackSeenRecord(messageIds: string[], viewerEmail: string): void {
+  const cleanViewer = viewerEmail.trim().toLowerCase();
+  if (!cleanViewer || !Array.isArray(messageIds) || messageIds.length === 0) return;
+  const idSet = new Set(messageIds.map(String));
+  const viewerIsCreator = cleanViewer === CREATOR_ADMIN_EMAIL.toLowerCase();
+
+  db.feedbackMessages = db.feedbackMessages.map((m) => {
+    if (!idSet.has(String(m.id))) return m;
+    if (viewerIsCreator) {
+      return { ...m, seenByCreator: true };
+    }
+    const senderMatch = String(m.senderEmail || '').trim().toLowerCase() === cleanViewer;
+    const recipientMatch = String(m.recipientEmail || '').trim().toLowerCase() === cleanViewer;
+    if (senderMatch || recipientMatch) {
+      return { ...m, seenBySender: true };
+    }
+    return m;
+  });
 }
 
 function enqueueTeacherLinkNotifications(
@@ -191,11 +368,12 @@ async function startServer() {
   const app = express();
   app.use(express.json({ limit: '15mb' }));
 
-  // Live Server-Sent Events stream for immediate teacher notifications & sync
+  // Live Server-Sent Events stream for immediate notifications & sync
   app.get('/api/portal/stream', (req: Request, res: Response) => {
     res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders?.();
     res.write(`event: connected\ndata: ${Date.now()}\n\n`);
     sseClients.add(res);
@@ -215,8 +393,11 @@ async function startServer() {
     });
   });
 
-  // Full Sync
+  // Full Sync (never cache behind proxies)
   app.get('/api/portal/sync', (_req: Request, res: Response) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.json(getSyncPayload());
   });
 
@@ -738,112 +919,28 @@ async function startServer() {
       res.status(400).json({ error: 'Invalid feedback message.' });
       return;
     }
-    const cleanSenderEmail = String(msg.senderEmail || '').trim().toLowerCase();
-    const isFromCreator = cleanSenderEmail === CREATOR_ADMIN_EMAIL.toLowerCase();
-    const savedMsg: Record<string, unknown> = {
-      ...msg,
-      id: String(msg.id),
-      senderEmail: cleanSenderEmail,
-      recipientEmail: CREATOR_ADMIN_EMAIL,
-      replies: Array.isArray(msg.replies) ? msg.replies : [],
-      seenByCreator: isFromCreator,
-      seenBySender: true,
-      createdAtMs: typeof msg.createdAtMs === 'number' ? msg.createdAtMs : Date.now(),
-    };
-    const existingIdx = db.feedbackMessages.findIndex((m) => String(m.id) === String(savedMsg.id));
-    if (existingIdx >= 0) {
-      db.feedbackMessages[existingIdx] = savedMsg;
-    } else {
-      db.feedbackMessages.push(savedMsg);
-    }
+    const savedMsg = upsertFeedbackMessageRecord(msg);
     persistDb();
     res.json({ ok: true, message: savedMsg, sync: getSyncPayload() });
   });
 
   app.post('/api/portal/feedback/reply', (req: Request, res: Response) => {
-    const {
-      messageId,
-      replyText,
-      adminEmail,
-      senderEmail,
-      senderName,
-      senderUid,
-      isCreator,
-    } = req.body as {
+    const body = req.body as {
       messageId?: string;
+      replyId?: string;
       replyText?: string;
       adminEmail?: string;
       senderEmail?: string;
       senderName?: string;
       senderUid?: string;
       isCreator?: boolean;
+      createdAtMs?: number;
     };
-    const cleanText = (replyText || '').trim().slice(0, 1000);
-    if (!messageId || !cleanText) {
+    const newReply = appendFeedbackReplyRecord(body);
+    if (!newReply) {
       res.status(400).json({ error: 'Missing messageId or replyText.' });
       return;
     }
-
-    const authorEmail = (senderEmail || adminEmail || CREATOR_ADMIN_EMAIL).trim().toLowerCase();
-    const creatorReply =
-      typeof isCreator === 'boolean'
-        ? isCreator
-        : authorEmail === CREATOR_ADMIN_EMAIL.toLowerCase();
-    const authorName =
-      (senderName || '').trim() ||
-      (creatorReply ? 'Creator (Nicole)' : authorEmail.split('@')[0] || 'User');
-    const now = Date.now();
-
-    const newReply = {
-      id: `fbr_${now}_${Math.random().toString(36).slice(2, 7)}`,
-      senderUid,
-      senderName: authorName,
-      senderEmail: authorEmail,
-      isCreator: creatorReply,
-      text: cleanText,
-      createdAtMs: now,
-    };
-
-    db.feedbackMessages = db.feedbackMessages.map((m) => {
-      if (String(m.id) !== String(messageId)) return m;
-      const existingReplies = Array.isArray(m.replies)
-        ? [...(m.replies as Record<string, unknown>[])]
-        : m.replyText
-        ? [
-            {
-              id: `fbr_legacy_${String(m.id)}`,
-              senderName: 'Creator',
-              senderEmail: String(m.replyByEmail || CREATOR_ADMIN_EMAIL),
-              isCreator: true,
-              text: String(m.replyText),
-              createdAtMs:
-                typeof m.replyAtMs === 'number'
-                  ? m.replyAtMs
-                  : typeof m.createdAtMs === 'number'
-                  ? m.createdAtMs + 1
-                  : now - 1,
-            },
-          ]
-        : [];
-      existingReplies.push(newReply);
-
-      return {
-        ...m,
-        replies: existingReplies,
-        ...(creatorReply
-          ? {
-              replyText: cleanText,
-              replyByEmail: authorEmail,
-              replyAtMs: now,
-              seenByCreator: true,
-              seenBySender: false,
-            }
-          : {
-              seenByCreator: false,
-              seenBySender: true,
-            }),
-      };
-    });
     persistDb();
     res.json({ ok: true, reply: newReply, sync: getSyncPayload() });
   });
@@ -853,24 +950,7 @@ async function startServer() {
       messageIds?: string[];
       viewerEmail?: string;
     };
-    const cleanViewer = viewerEmail.trim().toLowerCase();
-    if (!cleanViewer || !Array.isArray(messageIds) || messageIds.length === 0) {
-      res.json({ ok: true });
-      return;
-    }
-    const idSet = new Set(messageIds.map(String));
-    const viewerIsCreator = cleanViewer === CREATOR_ADMIN_EMAIL.toLowerCase();
-
-    db.feedbackMessages = db.feedbackMessages.map((m) => {
-      if (!idSet.has(String(m.id))) return m;
-      if (viewerIsCreator) {
-        return { ...m, seenByCreator: true };
-      }
-      if (String(m.senderEmail || '').trim().toLowerCase() === cleanViewer) {
-        return { ...m, seenBySender: true };
-      }
-      return m;
-    });
+    markFeedbackSeenRecord(messageIds, viewerEmail);
     persistDb();
     res.json({ ok: true, sync: getSyncPayload() });
   });
@@ -891,8 +971,60 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`EduTrack Portal server listening on http://0.0.0.0:${PORT}`);
+  const httpServer = http.createServer(app);
+  const wss = new WebSocketServer({ server: httpServer, path: '/ws/portal' });
+
+  wss.on('connection', (ws) => {
+    wsClients.add(ws);
+    try {
+      ws.send(JSON.stringify({ type: 'sync', sync: getSyncPayload() }));
+    } catch {
+      // ignore initial send error
+    }
+
+    ws.on('message', (raw) => {
+      try {
+        const packet = JSON.parse(String(raw)) as {
+          type?: string;
+          payload?: Record<string, unknown>;
+        };
+        if (packet.type === 'sync:request') {
+          ws.send(JSON.stringify({ type: 'sync', sync: getSyncPayload() }));
+          return;
+        }
+        if (packet.type === 'chat:send' && packet.payload?.id && packet.payload?.text) {
+          upsertFeedbackMessageRecord(packet.payload);
+          persistDb();
+          return;
+        }
+        if (packet.type === 'chat:reply' && packet.payload) {
+          const added = appendFeedbackReplyRecord(packet.payload as Parameters<typeof appendFeedbackReplyRecord>[0]);
+          if (added) persistDb();
+          return;
+        }
+        if (packet.type === 'chat:seen' && packet.payload) {
+          const { messageIds = [], viewerEmail = '' } = packet.payload as {
+            messageIds?: string[];
+            viewerEmail?: string;
+          };
+          markFeedbackSeenRecord(messageIds, viewerEmail);
+          persistDb();
+        }
+      } catch {
+        // ignore malformed websocket packet
+      }
+    });
+
+    ws.on('close', () => {
+      wsClients.delete(ws);
+    });
+    ws.on('error', () => {
+      wsClients.delete(ws);
+    });
+  });
+
+  httpServer.listen(PORT, '0.0.0.0', () => {
+    console.log(`EduTrack Portal server + WebSocket listening on http://0.0.0.0:${PORT}`);
   });
 }
 

@@ -97,6 +97,68 @@ function saveStore(next: PortalStoreState): void {
   listeners.forEach((cb) => cb());
 }
 
+let portalWs: WebSocket | null = null;
+let wsReconnectTimer: number | null = null;
+
+function sendWsPacket(type: string, payload?: unknown): void {
+  try {
+    if (portalWs && portalWs.readyState === WebSocket.OPEN) {
+      portalWs.send(JSON.stringify({ type, payload }));
+    }
+  } catch {
+    // REST fallback always runs in parallel
+  }
+}
+
+function mergeFeedbackMessages(
+  remoteMsgs: FeedbackMessage[],
+  localMsgs: FeedbackMessage[]
+): FeedbackMessage[] {
+  const byId = new Map<string, FeedbackMessage>();
+  const cutoffMs = Date.now() - 30000;
+
+  for (const r of remoteMsgs) {
+    if (r?.id) byId.set(r.id, r);
+  }
+
+  for (const l of localMsgs) {
+    if (!l?.id) continue;
+    const remote = byId.get(l.id);
+    if (!remote) {
+      if ((l.createdAtMs || 0) >= cutoffMs) {
+        byId.set(l.id, l);
+      }
+      continue;
+    }
+
+    // Union replies by reply.id so optimistic recent replies aren't dropped mid-flight
+    const remoteReplies = Array.isArray(remote.replies) ? remote.replies : [];
+    const localReplies = Array.isArray(l.replies) ? l.replies : [];
+    if (localReplies.length > 0) {
+      const replyMap = new Map<string, FeedbackReply>();
+      remoteReplies.forEach((rep) => {
+        if (rep?.id) replyMap.set(rep.id, rep);
+      });
+      localReplies.forEach((rep) => {
+        if (rep?.id && !replyMap.has(rep.id) && (rep.createdAtMs || 0) >= cutoffMs) {
+          replyMap.set(rep.id, rep);
+        }
+      });
+      const mergedReplies = Array.from(replyMap.values()).sort(
+        (a, b) => (a.createdAtMs || 0) - (b.createdAtMs || 0)
+      );
+      byId.set(l.id, {
+        ...remote,
+        replies: mergedReplies,
+      });
+    }
+  }
+
+  return Array.from(byId.values()).sort(
+    (a, b) => (a.createdAtMs || 0) - (b.createdAtMs || 0)
+  );
+}
+
 function applyServerSyncPayload(payload: Partial<PortalStoreState>): void {
   if (!payload || typeof payload !== 'object') return;
   const digest = JSON.stringify(payload);
@@ -136,7 +198,7 @@ function applyServerSyncPayload(payload: Partial<PortalStoreState>): void {
     eventsByUid: { ...local.eventsByUid, ...(payload.eventsByUid ?? {}) },
     tasksByUid: { ...local.tasksByUid, ...(payload.tasksByUid ?? {}) },
     feedbackMessages: Array.isArray(payload.feedbackMessages)
-      ? payload.feedbackMessages
+      ? mergeFeedbackMessages(payload.feedbackMessages, local.feedbackMessages)
       : local.feedbackMessages,
     teacherNotifications: mergedNotifs,
   };
@@ -193,7 +255,7 @@ export async function syncPortalNow(): Promise<void> {
         }
       }
 
-      const res = await fetch('/api/portal/sync');
+      const res = await fetch('/api/portal/sync', { cache: 'no-store' });
       if (res.ok) {
         const data = (await res.json()) as Partial<PortalStoreState>;
         applyServerSyncPayload(data);
@@ -211,10 +273,59 @@ export async function syncPortalNow(): Promise<void> {
   return syncInFlight;
 }
 
+function connectPortalWebSocket(): void {
+  if (typeof window === 'undefined' || typeof WebSocket === 'undefined') return;
+  if (portalWs && (portalWs.readyState === WebSocket.OPEN || portalWs.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+
+  try {
+    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProto}//${window.location.host}/ws/portal`;
+    const ws = new WebSocket(wsUrl);
+    portalWs = ws;
+
+    ws.onopen = () => {
+      sendWsPacket('sync:request');
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const packet = JSON.parse(String(event.data)) as {
+          type?: string;
+          sync?: Partial<PortalStoreState>;
+        };
+        if (packet.type === 'sync' && packet.sync) {
+          applyServerSyncPayload(packet.sync);
+        }
+      } catch {
+        // ignore non-JSON frames
+      }
+    };
+
+    ws.onclose = () => {
+      if (portalWs === ws) portalWs = null;
+      if (wsReconnectTimer === null) {
+        wsReconnectTimer = window.setTimeout(() => {
+          wsReconnectTimer = null;
+          connectPortalWebSocket();
+        }, 2500);
+      }
+    };
+
+    ws.onerror = () => {
+      // onclose handles reconnect
+    };
+  } catch {
+    // SSE and HTTP polling remain active as fallbacks
+  }
+}
+
 function ensureSyncPoller(): void {
   if (syncPollerStarted || typeof window === 'undefined') return;
   syncPollerStarted = true;
   void syncPortalNow();
+  connectPortalWebSocket();
 
   if (typeof EventSource !== 'undefined') {
     try {
@@ -233,11 +344,13 @@ function ensureSyncPoller(): void {
   window.setInterval(() => {
     if (document.visibilityState === 'visible') {
       void syncPortalNow();
+      connectPortalWebSocket();
     }
   }, 2500);
 
   window.addEventListener('focus', () => {
     void syncPortalNow();
+    connectPortalWebSocket();
   });
 }
 
@@ -921,6 +1034,39 @@ export async function batchReorderAssignments(
   });
 }
 
+export function subscribePortalUsers(
+  onChange: (users: UserProfileDoc[]) => void
+): () => void {
+  const emit = () => {
+    const store = loadStore();
+    const map = new Map<string, UserProfileDoc>();
+
+    Object.values(store.profiles).forEach((prof) => {
+      if (!prof?.email) return;
+      const cleanEmail = prof.email.trim().toLowerCase();
+      if (cleanEmail === CREATOR_ADMIN_EMAIL.toLowerCase()) return;
+      map.set(cleanEmail, prof);
+    });
+
+    Object.values(store.accounts).forEach((acc) => {
+      const u = acc?.user;
+      if (!u?.email) return;
+      const cleanEmail = u.email.trim().toLowerCase();
+      if (cleanEmail === CREATOR_ADMIN_EMAIL.toLowerCase()) return;
+      if (!map.has(cleanEmail)) {
+        map.set(cleanEmail, buildStarterProfile(u));
+      }
+    });
+
+    const sorted = Array.from(map.values()).sort((a, b) =>
+      (a.displayName || a.email).localeCompare(b.displayName || b.email)
+    );
+    onChange(sorted);
+  };
+  emit();
+  return subscribeStore(emit);
+}
+
 export function subscribeFeedbackMessages(
   currentUser: PortalUser,
   isCreator: boolean,
@@ -931,12 +1077,13 @@ export function subscribeFeedbackMessages(
   const emit = () => {
     const store = loadStore();
     const list = store.feedbackMessages
-      .filter(
-        (m) =>
-          creatorMode ||
-          m.senderUid === currentUser.uid ||
-          (myEmail && (m.senderEmail || '').trim().toLowerCase() === myEmail)
-      )
+      .filter((m) => {
+        if (creatorMode) return true;
+        if (m.senderUid === currentUser.uid) return true;
+        const senderEmail = (m.senderEmail || '').trim().toLowerCase();
+        const recipientEmail = (m.recipientEmail || '').trim().toLowerCase();
+        return Boolean(myEmail && (senderEmail === myEmail || recipientEmail === myEmail));
+      })
       .sort((a, b) => (a.createdAtMs || 0) - (b.createdAtMs || 0));
     onChange(list);
   };
@@ -947,12 +1094,17 @@ export function subscribeFeedbackMessages(
 export async function sendFeedbackMessage(
   user: PortalUser,
   text: string,
-  category: FeedbackCategory
+  category: FeedbackCategory,
+  recipientEmailOverride?: string
 ): Promise<void> {
   const cleanText = text.trim().slice(0, 1000);
   if (!cleanText) return;
   const cleanEmail = user.email.trim().toLowerCase();
   const isFromCreator = cleanEmail === CREATOR_ADMIN_EMAIL.toLowerCase();
+  const cleanRecipient = isFromCreator
+    ? (recipientEmailOverride || '').trim().toLowerCase() || CREATOR_ADMIN_EMAIL
+    : CREATOR_ADMIN_EMAIL;
+
   const store = loadStore();
   const msg: FeedbackMessage = {
     id: `fb_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -960,16 +1112,18 @@ export async function sendFeedbackMessage(
     senderName: user.displayName || cleanEmail.split('@')[0] || 'User',
     senderEmail: cleanEmail,
     senderPhotoUrl: user.photoURL,
-    recipientEmail: CREATOR_ADMIN_EMAIL,
+    recipientEmail: cleanRecipient,
     category,
     text: cleanText,
     replies: [],
     seenByCreator: isFromCreator,
-    seenBySender: true,
+    seenBySender: !isFromCreator,
     createdAtMs: Date.now(),
   };
   store.feedbackMessages = [...store.feedbackMessages, msg];
   saveStore(store);
+
+  sendWsPacket('chat:send', msg);
   const res = await postJson<{ sync?: Partial<PortalStoreState> }>('/api/portal/feedback', msg);
   if (res?.sync) applyServerSyncPayload(res.sync);
 }
@@ -1046,15 +1200,23 @@ export async function replyToFeedbackMessage(
   });
   saveStore(store);
 
-  const res = await postJson<{ sync?: Partial<PortalStoreState> }>('/api/portal/feedback/reply', {
+  const replyPayload = {
     messageId,
+    replyId: newReply.id,
     replyText: cleanReply,
     adminEmail: isCreator ? cleanAuthorEmail : undefined,
     senderEmail: cleanAuthorEmail,
     senderName: authorName,
     senderUid: opts?.senderUid,
     isCreator,
-  });
+    createdAtMs: now,
+  };
+  sendWsPacket('chat:reply', replyPayload);
+
+  const res = await postJson<{ sync?: Partial<PortalStoreState> }>(
+    '/api/portal/feedback/reply',
+    replyPayload
+  );
   if (res?.sync) applyServerSyncPayload(res.sync);
 }
 
@@ -1076,11 +1238,9 @@ export async function markFeedbackMessagesSeen(
       changed = true;
       return { ...m, seenByCreator: true };
     }
-    if (
-      !viewerIsCreator &&
-      (m.senderEmail || '').trim().toLowerCase() === cleanViewer &&
-      m.seenBySender === false
-    ) {
+    const senderMatch = (m.senderEmail || '').trim().toLowerCase() === cleanViewer;
+    const recipientMatch = (m.recipientEmail || '').trim().toLowerCase() === cleanViewer;
+    if (!viewerIsCreator && (senderMatch || recipientMatch) && m.seenBySender === false) {
       changed = true;
       return { ...m, seenBySender: true };
     }
@@ -1089,6 +1249,7 @@ export async function markFeedbackMessagesSeen(
 
   if (changed) {
     saveStore(store);
+    sendWsPacket('chat:seen', { messageIds, viewerEmail: cleanViewer });
     const res = await postJson<{ sync?: Partial<PortalStoreState> }>('/api/portal/feedback/seen', {
       messageIds,
       viewerEmail: cleanViewer,

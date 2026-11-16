@@ -436,21 +436,26 @@ export default function App() {
       (list: FeedbackMessage[]) => {
         if (isCreatorAdmin) {
           const unreadMsgs = list.filter(
-            (m) => m.seenByCreator === false || (m.seenByCreator === undefined && !m.replyText)
+            (m) =>
+              (m.senderEmail || '').trim().toLowerCase() !== CREATOR_ADMIN_EMAIL.toLowerCase() &&
+              (m.seenByCreator === false ||
+                (m.seenByCreator === undefined && !m.replyText && !(m.replies && m.replies.length > 0)))
           );
           setUnreadFeedbackCount(unreadMsgs.length);
 
           unreadMsgs.forEach((m) => {
-            if ((m.senderEmail || '').trim().toLowerCase() === CREATOR_ADMIN_EMAIL.toLowerCase()) {
-              return;
-            }
-            const latestReplyCount = Array.isArray(m.replies) ? m.replies.length : 0;
-            const notifyKey = `creator_${m.id}_${latestReplyCount}`;
+            const replies = Array.isArray(m.replies) ? m.replies : [];
+            const latestReply = replies[replies.length - 1];
+            const latestUserText =
+              latestReply && !latestReply.isCreator ? latestReply.text : m.text;
+            const notifyKey = `creator_${m.id}_${replies.length}`;
             if (!notifiedFeedbackEventKeysRef.current.has(notifyKey)) {
               notifiedFeedbackEventKeysRef.current.add(notifyKey);
               triggerNotification({
-                title: `New Message from ${m.senderName} 💬💖`,
-                message: `From ${m.senderEmail}: "${m.text.slice(0, 110)}${m.text.length > 110 ? '...' : ''}"`,
+                title: `New Chat from ${m.senderName} 💬💖`,
+                message: `From ${m.senderEmail}: "${latestUserText.slice(0, 110)}${
+                  latestUserText.length > 110 ? '...' : ''
+                }"`,
                 type: 'celebration',
               });
             }
@@ -467,9 +472,9 @@ export default function App() {
               const latestText =
                 (Array.isArray(m.replies) && m.replies.length > 0
                   ? m.replies[m.replies.length - 1].text
-                  : m.replyText) || '';
+                  : m.replyText || m.text) || '';
               triggerNotification({
-                title: `Reply from Creator (${CREATOR_ADMIN_EMAIL}) 💖`,
+                title: `Message from Maker (${CREATOR_ADMIN_EMAIL}) 💖`,
                 message: latestText.slice(0, 130) + (latestText.length > 130 ? '...' : ''),
                 type: 'celebration',
               });
