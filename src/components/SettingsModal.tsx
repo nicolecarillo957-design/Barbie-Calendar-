@@ -16,6 +16,7 @@ import {
   GraduationCap,
   Copy,
   Check,
+  Lock,
 } from 'lucide-react';
 import { cuteSound } from '../utils/cuteSound';
 import { CalendarThemeId, THEME_CONFIGS } from '../types/theme';
@@ -38,6 +39,9 @@ interface SettingsModalProps {
   userRole?: UserRole | null;
   onChangeUserRole?: (role: UserRole) => Promise<void>;
   onSignOut?: () => void;
+  authProvider?: 'portal' | 'google';
+  hasPassword?: boolean;
+  onUpdateAccountPassword?: (newPassword: string, currentPassword?: string) => Promise<void>;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -58,6 +62,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   userRole = 'student',
   onChangeUserRole,
   onSignOut,
+  authProvider = 'portal',
+  hasPassword = false,
+  onUpdateAccountPassword,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [localStudentName, setLocalStudentName] = useState(studentName);
@@ -69,6 +76,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [importError, setImportError] = useState<string | null>(null);
   const [switchingRole, setSwitchingRole] = useState(false);
   const [copiedTeacherEmail, setCopiedTeacherEmail] = useState(false);
+  const [showPwEditor, setShowPwEditor] = useState(false);
+  const [currentPwInput, setCurrentPwInput] = useState('');
+  const [newPwInput, setNewPwInput] = useState('');
+  const [pwSaving, setPwSaving] = useState(false);
+  const [pwMsg, setPwMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const isTeacherAccount = userRole === 'teacher';
 
   React.useEffect(() => {
@@ -212,24 +224,110 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           )}
 
-          {/* Section 0.1: Google Account & Cloud Sync Security */}
-          <div className="p-3.5 sm:p-4 bg-gradient-to-br from-emerald-50/60 to-pink-50/70 border border-emerald-200 rounded-2xl flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <span className="w-8 h-8 rounded-full bg-white text-emerald-600 flex items-center justify-center border border-emerald-200 shadow-2xs shrink-0">
-                <ShieldCheck className="w-4 h-4" />
-              </span>
-              <div className="min-w-0">
-                <h4 className="text-xs font-black uppercase tracking-wider text-pink-950">
-                  Firebase Cloud Sync Active
-                </h4>
-                <p className="text-[11px] text-pink-700 font-medium truncate">
-                  {userEmail ? `Verified Google session (${userEmail})` : 'Protected by Google Sign-In'}
-                </p>
+          {/* Section 0.1: Account Security & Cloud/Portal Sync */}
+          <div className="p-3.5 sm:p-4 bg-gradient-to-br from-emerald-50/60 to-pink-50/70 border border-emerald-200 rounded-2xl space-y-2.5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="w-8 h-8 rounded-full bg-white text-emerald-600 flex items-center justify-center border border-emerald-200 shadow-2xs shrink-0">
+                  <ShieldCheck className="w-4 h-4" />
+                </span>
+                <div className="min-w-0">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-pink-950">
+                    {authProvider === 'google'
+                      ? 'Firebase Cloud Sync Active'
+                      : 'EduTrack Account Sync Active'}
+                  </h4>
+                  <p className="text-[11px] text-pink-700 font-medium truncate">
+                    {authProvider === 'google'
+                      ? userEmail
+                        ? `Verified Google session (${userEmail})`
+                        : 'Protected by Google Sign-In'
+                      : userEmail
+                      ? `Signed in cleanly (${userEmail})`
+                      : 'Password-protected portal session'}
+                  </p>
+                </div>
               </div>
+              {authProvider === 'google' ? (
+                <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold shrink-0 bg-emerald-100 text-emerald-800 border border-emerald-300">
+                  Verified
+                </span>
+              ) : (
+                onUpdateAccountPassword && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPwEditor((prev) => !prev);
+                      setPwMsg(null);
+                    }}
+                    className="px-2.5 py-1 rounded-lg text-[10px] font-extrabold shrink-0 bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-300 flex items-center gap-1"
+                  >
+                    <Lock className="w-3 h-3" />
+                    <span>{hasPassword ? 'Change Password' : 'Set Password'}</span>
+                  </button>
+                )
+              )}
             </div>
-            <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold shrink-0 bg-emerald-100 text-emerald-800 border border-emerald-300">
-              Verified
-            </span>
+
+            {authProvider !== 'google' && showPwEditor && onUpdateAccountPassword && (
+              <div className="pt-2 border-t border-emerald-200/80 space-y-2">
+                {hasPassword && (
+                  <input
+                    type="password"
+                    value={currentPwInput}
+                    onChange={(e) => setCurrentPwInput(e.target.value)}
+                    placeholder="Current password (if set)"
+                    className="w-full text-xs px-3 py-1.5 bg-white border border-emerald-200 rounded-xl text-pink-950 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                  />
+                )}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="password"
+                    value={newPwInput}
+                    onChange={(e) => setNewPwInput(e.target.value)}
+                    placeholder="New password (4+ chars)"
+                    className="flex-1 text-xs px-3 py-1.5 bg-white border border-emerald-200 rounded-xl text-pink-950 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                  />
+                  <button
+                    type="button"
+                    disabled={pwSaving || newPwInput.length < 4}
+                    onClick={async () => {
+                      setPwSaving(true);
+                      setPwMsg(null);
+                      try {
+                        await onUpdateAccountPassword(
+                          newPwInput,
+                          hasPassword && currentPwInput ? currentPwInput : undefined
+                        );
+                        setPwMsg({ type: 'ok', text: 'Password updated safely!' });
+                        setCurrentPwInput('');
+                        setNewPwInput('');
+                        cuteSound.playSparkle();
+                      } catch (err) {
+                        setPwMsg({
+                          type: 'err',
+                          text: err instanceof Error ? err.message : 'Could not update password.',
+                        });
+                      } finally {
+                        setPwSaving(false);
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-extrabold rounded-xl shrink-0"
+                  >
+                    {pwSaving ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+                {pwMsg && (
+                  <p
+                    className={`text-[11px] font-bold ${
+                      pwMsg.type === 'ok' ? 'text-emerald-700' : 'text-rose-600'
+                    }`}
+                  >
+                    {pwMsg.text}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Section 0.2: Role Switcher & Profile */}

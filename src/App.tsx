@@ -39,10 +39,12 @@ import {
   deleteEvent,
   deleteTask,
   ensureUserProfile,
+  hasAccountPassword,
   linkStudentEmailByTeacher,
   markTeacherNotificationsSeen,
   saveEvent,
   saveTask,
+  setOrUpdateAccountPassword,
   signOutUser,
   subscribeAuthState,
   subscribeEvents,
@@ -150,11 +152,16 @@ export default function App() {
     (currentUser?.email || '').toLowerCase() === CREATOR_ADMIN_EMAIL.toLowerCase();
   const isTeacherAccount = userRole === 'teacher';
 
-  // Listener A: Own User Profile
+  // Listener A: Own User Profile (with non-blocking safety unlock so loading never hangs)
   useEffect(() => {
     if (authLoading || !currentUser) return;
 
+    const safetyTimer = setTimeout(() => {
+      setProfileLoaded(true);
+    }, 2200);
+
     const unsubscribe = subscribeUserProfile(currentUser.uid, (data) => {
+      clearTimeout(safetyTimer);
       setProfileLoaded(true);
       if (!data) return;
       const roleFromDb =
@@ -173,7 +180,10 @@ export default function App() {
       });
     });
 
-    return () => unsubscribe();
+    return () => {
+      clearTimeout(safetyTimer);
+      unsubscribe();
+    };
   }, [authLoading, currentUser]);
 
   // Listener B: Students Assigned to Current User's Email (or All Users for Creator Admin)
@@ -1841,6 +1851,11 @@ export default function App() {
         userRole={userRole}
         onChangeUserRole={handleSelectUserRole}
         onSignOut={signOutUser}
+        authProvider={currentUser.authProvider || 'portal'}
+        hasPassword={hasAccountPassword(currentUser.uid)}
+        onUpdateAccountPassword={(newPw, curPw) =>
+          setOrUpdateAccountPassword(currentUser.uid, newPw, curPw)
+        }
       />
 
       <ThemeSelectorModal
